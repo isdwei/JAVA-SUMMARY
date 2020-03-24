@@ -1357,66 +1357,103 @@ public V get(Object key) {
 * 在大部分高并发场景下，建议使用 LinkedBlockingQueue ，性能与 ConcurrentLinkedQueue 接近，且能保证数据一致性；
 * ConcurrentLinkedQueue 适用于超高并发的场景，但是需要针对数据不一致采取一些措施。
 
+#### **源码分析**
+
+##### offer(E e)
+
+```java
+public boolean offer(E e) {
+    checkNotNull(e);
+    //创建入队节点
+    final Node<E> newNode = new Node<E>(e);
+    //t为tail节点，p为尾节点，默认相等，采用失败即重试的方式，直到入队成功
+    for (Node<E> t = tail, p = t; ; ) {
+        //获得p的下一个节点
+        Node<E> q = p.next;
+        // 如果下一个节点是null,也就是p节点就是尾节点
+        if (q == null) {
+            //将入队节点newNode设置为当前队列尾节点p的next节点
+            if (p.casNext(null, newNode)) {
+                //判断tail节点是不是尾节点，也可以理解为如果插入结点后tail节点和p节点距离达到两个结点
+                if (p != t)
+                    //如果tail不是尾节点则将入队节点设置为tail。
+                    // 如果失败了，那么说明有其他线程已经把tail移动过 
+                    casTail(t, newNode);
+                return true;
+            }
+        }
+        // 如果p节点等于p的next节点，则说明p节点和q节点都为空，表示队列刚初始化，所以返回                            head节点
+        else if (p == q)
+            p = (t != (t = tail)) ? t : head;
+        else
+            //p有next节点，表示p的next节点是尾节点，则需要重新更新p后将它指向next节点
+            p = (p != t && t != (t = tail)) ? t : q;
+    }
+}
+```
+
+即定位出尾节点=>CAS入队=>重新定位tail节点。
+
+##### poll( )
+
+```java
+public E poll() {
+    // 设置起始点  
+    restartFromHead:
+    for (; ; ) {
+        //p表示head结点，需要出队的节点
+        for (Node<E> h = head, p = h, q; ; ) {
+            //获取p节点的元素
+            E item = p.item;
+            //如果p节点的元素不为空，使用CAS设置p节点引用的元素为null
+            if (item != null && p.casItem(item, null)) {
+
+                if (p != h) // hop two nodes at a time
+                    //如果p节点不是head节点则更新head节点，也可以理解为删除该结点后检查head是否与头结点相差两个结点，如果是则更新head节点
+                    updateHead(h, ((q = p.next) != null) ? q : p);
+                return item;
+            }
+            //如果p节点的下一个节点为null，则说明这个队列为空，更新head结点
+            else if ((q = p.next) == null) {
+                updateHead(h, p);
+                return null;
+            }
+            //结点出队失败，重新跳到restartFromHead来进行出队
+            else if (p == q)
+                continue restartFromHead;
+            else
+                p = q;
+        }
+    }
+}
+```
+
+即获取head节点的元素 => 判断head节点元素是否为空=>如果为空，表示另外一个线程已经进行了一次出队操作将该节点的元素取走=>如果不为空，则使用CAS的方式将head节点的引用设置成null=>如果CAS成功，则直接返回head节点的元素=>如果CAS不成功，表示另外一个线程已经进行了一次出队操作更新了head节点，导致元素发生了变化，需要重新获取head节点=>如果p节点的下一个节点为null，则说明这个队列为空（此时队列没有元素，只有一个伪结点p），则更新head节点。
+
 #### 特点
 
 * 访问操作采用了无锁设计
 * Iterator的弱一致性，即不保证Iteartor访问数据的实时一致性（与current组的成员与COW成员类似）
-* 并发poll
-* 并发add
-* poll/add并发
+* 并发offer/poll
 
 #### 注意事项
 
-size操作不是一个固定时长的操作（not a constant-time operation）。因为size需要遍历整个queue，如果此时queue正在被修改，size可能返回不准确的数值（仍然是**无法保证数据一致性**），就像concurrentHashMap一样，要获取size，需要取得所有的bucket的锁，这是一个非常耗时的操作。因此如果需要保证数据一致性，频繁获取集合对象的size，最好不使用concurrent族的成员。
+size操作需要遍历整个队列，且如果此时queue正在被修改，size可能返回不准确的数值（仍然是**无法保证数据一致性**），这是一个非常耗时的操作，判断队列是否为空建议使用**isEmpty()**。如果需要保证数据一致性，频繁获取集合对象的size，最好不使用concurrent族的成员。
 
 **批量操作（bulk operations like addAll,removeAll,equals）无法保证原子性**，因为不保证实时性，且没有使用独占锁的设计。例如，在执行addAll的同时，有另外一个线程通过Iterator在遍历，则遍历的线程可能只看到一部分新增的数据。
 
 ConcurrentLinkedQueue **没有实现BlockingQueue接口。当队列为空时，take方法返回null**，此时consumer会需要处理这个情况，consumer会循环调用take来保证及时获取数据，此为**busy waiting**，会持续**消耗CPU资源。**
 
-4、与 LinkedBlockingQueue 的对比
-LinkedBlockingQueue 采用了锁分离的设计，put、get锁分离，保证两种操作的并发，但同一种操作，然后是锁控制的。并且当队列为空/满时，某种操作
-会被挂起。
+#### 与 LinkedBlockingQueue 的对比
 
-4.1 并发性能
-4.1.1 高并发put操作
-可支持高并发场景下，多线程无锁put操作
-4.1.2 高并发的put/poll操作
-多线程场景，同时put，遍历，以及poll，均可无锁操作。但不保证遍历的实时一致性。
-
-4.2 数据的实时一致性
-两者的Iterator都不不保证数据一致性，Iterator遍历的是Iterator创建时已存在的节点，创建后的修改不保证能反应出来。
-参考 LinkedBlockingQueue 的java doc关于Iterator的解释：
-The returned iterator is a "weakly consistent" iterator that will never throw ConcurrentModificationException, and guarantees to traverse elements as they existed upon construction of the iterator, and may (but is not guaranteed to) reflect any modifications subsequent to construction.
-
-4.3 遍历操作(Iterator的遍历操作的差异)
-目前看来，没有差异
-
-4.4 size操作
-LinkedBlockingQueue 的size是在内部用一个AtomicInteger保存，执行size操作直接获取此原子量的当前值，时间复杂度O(1)。
-ConcurrentLinkedQueue 的size操作需要遍历（traverse the queue），因此比较耗时，时间复杂度至少为O(n),建议使用isEmpty()。
-The java doc says the size() method is typically not very useful in concurrent applications.
-
-5.LinkedBlockingQueue和ConcurrentLinkedQueue适用场景
-
-适用阻塞队列的好处：多线程操作共同的队列时不需要额外的同步，另外就是队列会自动平衡负载，即那边（生产与消费两边）处理快了就会被阻塞掉，从而减少两边的处理速度差距。
-当许多线程共享访问一个公共 collection 时，ConcurrentLinkedQueue 是一个恰当的选择。
-
-LinkedBlockingQueue 多用于任务队列
-
-ConcurrentLinkedQueue  多用于消息队列
-
-多个生产者，对于LBQ性能还算可以接受；但是多个消费者就不行了mainLoop需要一个timeout的机制，否则空转，cpu会飙升的。LBQ正好提供了timeout的接口，更方便使用
-如果CLQ，那么我需要收到处理sleep
-
-单生产者，单消费者  用 LinkedBlockingqueue
-
-多生产者，单消费者  用 LinkedBlockingqueue
-
-单生产者 ，多消费者  用 ConcurrentLinkedQueue
-
-多生产者 ，多消费者  用 ConcurrentLinkedQueue
+* LinkedBlockingQueue 采用了锁分离的设计，put、get锁分离，保证两种操作的并发；
+* 当队列为空/满时，某种操作会被挂起；
+* 两者的Iterator都不不保证数据一致性，Iterator遍历的是Iterator创建时已存在的节点，创建后的修改不保证能反应出来。
+* LinkedBlockingQueue 的size是在内部用一个AtomicInteger保存，执行size操作直接获取此原子量的当前值，时间复杂度O(1)。
+  ConcurrentLinkedQueue 的size操作需要遍历（traverse the queue），因此比较耗时，时间复杂度至少为O(n),建议使用isEmpty()。
 
 
+### 14. CopyOnWrite 
 
 **19.fork/join**
 
