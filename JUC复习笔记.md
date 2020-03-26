@@ -579,6 +579,77 @@ protected final boolean tryRelease(int releases) {
 
 **ReentrantReadWriteLock包含两个内部类: ReadLock和WriteLock，获取锁和释放锁都是通过AQS来实现的。AQS的状态state是32位的，读锁用高16位，表示持有读锁的线程数(sharedCount)，写锁低16位，表示写锁的重入次数(exclusiveCount)。**
 
+示例代码：
+
+```java
+class MyCache {
+    private volatile Map<String, Object> map = new HashMap<>();
+    private ReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+    public void put(String key, Object value) {
+        rwLock.writeLock().lock();
+        try {
+            System.out.println(Thread.currentThread().getName() + "\t 正在写" + key);
+            //暂停一会儿线程
+            try {
+                TimeUnit.MILLISECONDS.sleep(300);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            map.put(key, value);
+            System.out.println(Thread.currentThread().getName() + "\t 写完了" + key);
+            System.out.println();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+
+    }
+
+    public Object get(String key) {
+        rwLock.readLock().lock();
+        Object result = null;
+        try {
+            System.out.println(Thread.currentThread().getName() + "\t 正在读" + key);
+            try {
+                TimeUnit.MILLISECONDS.sleep(300);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            result = map.get(key);
+            System.out.println(Thread.currentThread().getName() + "\t 读完了" + result);
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        return result;
+    }
+}
+
+public class ReadWriteLockDemo {
+	public static void main(String[] args) {
+        MyCache myCache = new MyCache();
+
+        for (int i = 1; i <= 5; i++) {
+            final int num = i;
+            new Thread(() -> {
+                myCache.put(num + "", num + "");
+            }, String.valueOf(i)).start();
+        }
+        for (int i = 1; i <= 5; i++) {
+            final int num = i;
+            new Thread(() -> {
+                myCache.get(num + "");
+            }, String.valueOf(i)).start();
+        }
+    }
+}
+```
+
+
+
 ##### **8.7.1 线程进入读锁的前提条件：（共享锁）**
 
 * 没有其他线程的拥有写锁，
@@ -774,7 +845,7 @@ public static boolean interrupted();//测试此线程是否已被中断，并清
 
 **join()**：一种同步机制，A线程调用B线程.join()，A线程会等待B线程执行完再执行。join在start之前调用没有意义。
 
-### 11. 生产者\消费者模式
+### 11. 生产者/消费者模式
 
 #### 11.1 Object中的 wait()/notify()
 
@@ -1796,5 +1867,172 @@ ForkJoinTask的join方法实现原理 :
 - 在使用JVM的时候我们要考虑OOM的问题，如果我们的任务处理时间非常耗时，并且处理的数据非常大的时候。会造成OOM。
 - ForkJoin也是通过多线程的方式进行处理任务。那么我们不得不考虑是否应该使用ForkJoin。因为当数据量不是特别大的时候，我们没有必要使用ForkJoin。因为多线程会涉及到上下文的切换。所以数据量不大的时候使用串行比使用多线程快。
 
-### 17.CountDownLatch/CyclicBarrier/Semaphore 
+### 17.JUC中的工具类：CountDownLatch/CyclicBarrier/Semaphore 
+
+#### 17.1 CountDownLatch（减少计数）
+
+**让一些线程阻塞直到另外一些完成后才被唤醒。**
+
+CountDownLatch主要有两个方法，当一个或多个线程调用await方法时,调用线程会被阻塞.其他线程调用countDown方法计数器减1(调用countDown方法时线程不会阻塞)，当计数器的值变为0，因调用await方法被阻塞的线程会被唤醒，继续执行
+
+```java
+public class CountDownLatchDemo {
+    public static void main(String[] args) throws Exception {
+        closeDoor();
+    }
+
+   /**
+     * 关门案例
+     * @throws InterruptedException
+     */
+    private static void closeDoor() throws InterruptedException {
+        CountDownLatch countDownLatch = new CountDownLatch(6);
+        for (int i = 1; i <= 6; i++) {
+            new Thread(() -> {
+                System.out.println(Thread.currentThread().getName() + "\t" + "上完自习");
+                countDownLatch.countDown();
+            }, String.valueOf(i)).start();
+        }
+        countDownLatch.await();
+        System.out.println(Thread.currentThread().getName() + "\t班长锁门离开教室");
+    }
+} 
+```
+
+#### 17.2 CyclicBarrier（循环栅栏）
+
+CyclicBarrier的字面意思是可循环（Cyclic）使用的屏障（Barrier）。它要做的事情是，让一组线程到达一个屏障（也可以叫同步点）时被阻塞，直到最后一个线程到达屏障时，屏障才会开门，所有被屏障拦截的线程才会继续干活。线程进入屏障通过CyclicBarrier的await()方法。
+
+```java
+public class CyclicBarrierDemo
+{
+  private static final int NUMBER = 7;
+  
+  public static void main(String[] args)
+  {
+     //CyclicBarrier(int parties, Runnable barrierAction) 
+     
+     CyclicBarrier cyclicBarrier = new CyclicBarrier(NUMBER, ()->{System.out.println("*****集齐7颗龙珠就可以召唤神龙");}) ;
+     
+     for (int i = 1; i <= 7; i++) {
+       new Thread(() -> {
+          try {
+            System.out.println(Thread.currentThread().getName()+"\t 星龙珠被收集 ");
+            cyclicBarrier.await();
+          } catch (InterruptedException | BrokenBarrierException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+          }       
+       }, String.valueOf(i)).start();
+     } 
+  }
+}
+```
+
+#### 17.3 Semaphore（信号灯）
+
+在信号量上我们定义两种操作：acquire（获取） 当一个线程调用acquire操作时，它要么通过成功获取信号量（信号量减1），要么一直等下去，直到有线程释放信号量，或超时。release（释放）实际上会将信号量的值加1，然后唤醒等待的线程。信号量主要用于两个目的，一个是用于多个共享资源的互斥使用，另一个用于并发线程数的控制。
+
+```java
+public class SemaphoreDemo
+{
+  public static void main(String[] args)
+  {
+     Semaphore semaphore = new Semaphore(3);//模拟3个停车位
+     
+     for (int i = 1; i <=6; i++) //模拟6部汽车
+     {
+       new Thread(() -> {
+          try 
+          {
+            semaphore.acquire();
+            System.out.println(Thread.currentThread().getName()+"\t 抢到了车位");
+            TimeUnit.SECONDS.sleep(new Random().nextInt(5));
+            System.out.println(Thread.currentThread().getName()+"\t------- 离开");
+          } catch (InterruptedException e) {
+            e.printStackTrace();
+          }finally {
+            semaphore.release();
+          }
+       }, String.valueOf(i)).start();
+     }
+  }
+}
+```
+
+### 18. Callable接口
+
+获得多线程的方法：Thread，Runnable，Callable，ThreadPool
+
+```java
+class MyThread2 implements Callable<Integer>{
+	@Override
+ 	public Integer call() throws Exception {
+  		return 200;
+ 	} 
+}
+```
+
+#### 18.1 callable接口与runnable接口的区别？
+
+* 是否有返回值
+* 是否抛异常
+* 落地方法不一样，一个是run，一个是call
+
+#### 18.2 FutureTask类
+
+在主线程中需要执行比较耗时的操作时，但又不想阻塞主线程时，可以把这些作业交给Future对象在后台完成，
+当主线程将来需要时，就可以通过Future对象获得后台作业的计算结果或者执行状态。
+
+一般**FutureTask多用于耗时的计算**，主线程可以在完成自己的任务后，再去获取结果。
+
+**仅在计算完成时才能检索结果**；如果**计算尚未完成，则阻塞 get 方法**。一旦计算完成，就不能再重新开始或取消计算（只计算一次）。get方法而获取结果只有在计算完成时获取，否则会一直阻塞直到任务转入完成状态，然后会返回结果或者抛出异常。 
+
+```java
+class MyThread implements Runnable{
+    @Override
+    public void run() {
+    }
+}
+class MyThread2 implements Callable<Integer>{
+    @Override
+    public Integer call() throws Exception {
+        System.out.println(Thread.currentThread().getName()+"come in callable");
+        return 200;
+    }
+}
+
+
+public class CallableDemo {
+
+    public static void main(String[] args) throws Exception {
+
+        //FutureTask<Integer> futureTask = new FutureTask(new MyThread2());
+        FutureTask<Integer> futureTask = new FutureTask(()->{
+            System.out.println(Thread.currentThread().getName()+"  come in callable");
+            TimeUnit.SECONDS.sleep(4);
+            return 1024;
+        });
+        FutureTask<Integer> futureTask2 = new FutureTask(()->{
+            System.out.println(Thread.currentThread().getName()+"  come in callable");
+            TimeUnit.SECONDS.sleep(4);
+            return 2048;
+        });
+
+        new Thread(futureTask,"zhang3").start();
+        new Thread(futureTask2,"li4").start();
+
+        //System.out.println(futureTask.get());
+        //System.out.println(futureTask2.get());
+        //1、一般放在程序后面，直接获取结果
+        //2、只会计算结果一次
+
+        while(!futureTask.isDone()){
+            System.out.println("***wait");
+        }
+        System.out.println(futureTask.get());
+        System.out.println(Thread.currentThread().getName()+" come over");
+    }
+}
+```
 
