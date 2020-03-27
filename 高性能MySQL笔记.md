@@ -490,3 +490,90 @@ MVCC 是一种并发控制的方法，一般在数据库管理系统中，实现
 如果是带排他锁操作（除了INSERT/UPDATE/DELETE这种，还包括SELECT FOR UPDATE/LOCK IN SHARE MODE等），它们默认都在操作的记录上加了Next-Key Lock。只有使用了这里的操作后才会在相应的记录周围和记录本身加锁，即Record Lock + Gap Lock，所以会导致有冲突操作的事务阻塞进而超时失败。
 
 隔离级别越高并发度越差，性能越差，虽然MySQL默认的是RR，但是如果业务不需要严格的没有幻读现象，是可以降低为RC的或修改配置innodb_locks_unsafe_for_binlog为1 来避免Gap Lock的。 注意有的时候MySQL会自动对Next-Key Lock进行优化，退化为只加Record Lock，不加Gap Lock，如相关条件字段为主键时直接加Record Lock。
+
+### 7.面试题整理
+
+#### 查找每个部门工资最高的员工
+
+> Employee 表包含所有员工信息，每个员工有其对应的 Id, salary 和 department Id。
+>
+> +----+-------+--------+--------------+
+> | Id | Name  | Salary | DepartmentId |
+> +----+-------+--------+--------------+
+> | 1  | Joe   | 70000  | 1            |
+> | 2  | Henry | 80000  | 2            |
+> | 3  | Sam   | 60000  | 2            |
+> | 4  | Max   | 90000  | 1            |
+> +----+-------+--------+--------------+
+> Department 表包含公司所有部门的信息。
+> +----+----------+
+> | Id | Name     |
+> +----+----------+
+> | 1  | IT       |
+> | 2  | Sales    |
+> +----+----------+
+> 编写一个 SQL 查询，找出每个部门工资最高的员工。例如，根据上述给定的表格，Max 在 IT 部门有最高工资，Henry 在 Sales 部门有最高工资。
+>
+> +------------+----------+--------+
+> | Department | Employee | Salary |
+> +------------+----------+--------+
+> | IT         | Max      | 90000  |
+> | Sales      | Henry    | 80000  |
+> +------------+----------+--------+
+>
+
+```sql
+
+解法一：
+SELECT 
+Department.Name as Department, 
+Employee.Name as Employee, 
+MAX(Employee.Salary) as Salary 
+FROM Employee 
+LEFT JOIN 
+Department 
+ON 
+Employee.DepartmentId = Department.Id 
+GROUP BY Employee.DepartmentId;
+ 
+输入：
+{"headers": {"Employee": ["Id", "Name", "Salary", "DepartmentId"], "Department": ["Id", "Name"]}, "rows": {"Employee": [[1, "Joe", 70000, 1], [2, "Jim", 90000, 1], [3, "Henry", 80000, 2], [4, "Sam", 60000, 2], [5, "Max", 90000, 1]], "Department": [[1, "IT"], [2, "Sales"]]}}
+输出：
+{"headers":["Department","Employee","Salary"],"values":[["IT","Joe",90000],["Sales","Henry",80000]]}
+预期：
+{"headers":["Department","Employee","Salary"],"values":[["IT","Jim",90000],["Sales","Henry",80000],["IT","Max",90000]]}
+ 
+没有达到预期结果，原因group by 进行了去重，如果有同部门薪水想同多个员工得不到预期结果。
+ 
+解法二：
+select 
+d.Name as Department,
+e.Name as Employee ,
+e.Salary 
+from Employee e 
+join 
+Department d 
+on e.DepartmentId = d.Id 
+where (e.DepartmentId ,e.Salary) 
+in 
+	(select DepartmentId ,
+ 	max(Salary) as Salary  
+ 	from Employee 
+ 	group by DepartmentId);
+ 
+正确。
+先根据部门DepartmentId group by 出部门id与最高的薪水值作为筛选条件。
+select DepartmentId ,max(Salary) as Salary  from Employee group by DepartmentId
+ 
+在两表left join 根据得出的条件筛选满足DepartmentId 与 Salary  最大值的员工。
+```
+
+####   分布式数据库如何保证数据可靠性  
+
+在传统数据库中，有几种常用的手段来保证数据可靠性：
+1）Redo Log
+2）主从热备
+3）备份/恢复
+4）存储层数据校验 
+
+5） 分布式一致性协议 
