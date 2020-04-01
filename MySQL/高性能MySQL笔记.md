@@ -566,6 +566,19 @@ in
 select DepartmentId ,max(Salary) as Salary  from Employee group by DepartmentId
  
 在两表left join 根据得出的条件筛选满足DepartmentId 与 Salary  最大值的员工。
+
+mysql实现分组查询每个班级的前三名
+select a.class,a.score from student a 
+where 
+(select 
+ count(*) 
+ from 
+ student 
+ where a.class=class and a.score<score)
+ <3
+order by 
+a.class, a.score 
+desc;
 ```
 
 ####   分布式数据库如何保证数据可靠性  
@@ -575,5 +588,4 @@ select DepartmentId ,max(Salary) as Salary  from Employee group by DepartmentId
 2）主从热备
 3）备份/恢复
 4）存储层数据校验 
-
 5） 分布式一致性协议 

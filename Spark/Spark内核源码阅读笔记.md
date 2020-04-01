@@ -30,7 +30,7 @@ Executor有两个核心功能:
 
 ### Spark 通用运行流程概述
 
-<img src="http://img4.sycdn.imooc.com/5e1c416e0001d6d208350622.jpg" alt="Spark核心运行流程" style="zoom: 60%;" />
+<img src="E:\JAVA-SUMMARY\Spark\5e1c416e0001d6d208350622.jpg" alt="Spark核心运行流程" style="zoom: 60%;" />
 图为Spark通用运行流程，**不论Spark以何种模式进行部署，任务提交后，都会先启动Driver进程，随后Driver进程向集群管理器注册应用程序，之后集群管理器根据此任务的配置文件分配Executor并启动，当Driver所需的资源全部满足后，Driver开始执行main函数，Spark查询为懒执行，当执行到action算子时开始反向推算，根据宽依赖进行stage的划分，随后每一个stage对应一个taskset，taskset中有多个task，根据本地化原则，task会被分发到指定的Executor去执行，在任务执行的过程中，Executor也会不断与Driver进行通信，报告任务运行情况。**
 
 ## Spark 部署模式
@@ -69,13 +69,13 @@ Standalone集群有四个重要组成部分，分别是:
 
 #### Standalone Client 模式
 
-![Standalone Client 模式](http://img2.sycdn.imooc.com/5e1c417000016e2910660548.jpg)
+![Standalone Client 模式](E:\JAVA-SUMMARY\Spark\5e1c417000016e2910660548.jpg)
 
 在Standalone Client模式下，Driver在任务提交的本地机器上运行，Driver启动后向Master注册应用程序，Master根据submit脚本的资源需求找到内部资源至少可以启动一个Executor的所有Worker，然后在这些Worker之间分配Executor，Worker上的Executor启动后会向Driver反向注册，所有的Executor注册完成后，Driver开始执行main函数，之后执行到Action算子时，开始划分stage，每个stage生成对应的taskSet，之后将task分发到各个Executor上执行。
 
 #### Standalone Cluster模式
 
-![Standalone Cluster模式](http://img3.sycdn.imooc.com/5e1c417200013e9410290470.jpg)
+![Standalone Cluster模式](E:\JAVA-SUMMARY\Spark\5e1c417200013e9410290470.jpg)
 在Stan54本的资源需求找到内部资源至少可以启动一个Executor的所有Worker，然后在这些Worker之间分配Executor，Worker上的Executor启动后会向Driver反向注册，所有的Executor注册完成后，Driver开始执行main函数，之后执行到Action算子时，开始划分stage，每个stage生成对应的taskSet，之后将task分发到各个Executor上执行。
 **注意**
 Standalone的两种模式下（client/Cluster），Master在接到Driver注册Spark应用程序的请求后，会获取其所管理的剩余资源能够启动一个Executor的所有Worker，然后在这些Worker之间分发Executor，此时的分发只考虑Worker上的资源是否足够使用，直到当前应用程序所需的所有Executor都分配完毕，Executor反向注册完毕后，Driver开始执行main程序。
@@ -84,14 +84,14 @@ Standalone的两种模式下（client/Cluster），Master在接到Driver注册Sp
 
 #### Yarn Client 模式
 
-![Yarn Client 模式](http://img2.sycdn.imooc.com/5e1c41740001ff9712450741.jpg)
+![Yarn Client 模式](E:\JAVA-SUMMARY\Spark\5e1c41740001ff9712450741.jpg)
 在YARN Client模式下，Driver在任务提交的本地机器上运行，Driver启动后会和ResourceManager通讯申请启动ApplicationMaster，随后ResourceManager分配container，在合适的NodeManager上启动ApplicationMaster，此时的ApplicationMaster的功能相当于一个ExecutorLaucher，只负责向ResourceManager申请Executor内存。
 
 ResourceManager接到ApplicationMaster的资源申请后会分配container，然后ApplicationMaster在资源分配指定的NodeManager上启动Executor进程，Executor进程启动后会向Driver反向注册，Executor全部注册完成后Driver开始执行main函数，之后执行到Action算子时，触发一个job，并根据宽依赖开始划分stage，每个stage生成对应的taskSet，之后将task分发到各个Executor上执行。
 
 #### Yarn Cluster 模式
 
-![Yarn Cluster 模式](http://img3.sycdn.imooc.com/5e1c4175000117b812010499.jpg)
+![Yarn Cluster 模式](E:\JAVA-SUMMARY\Spark\5e1c4175000117b812010499.jpg)
 
 在YARN Cluster模式下，任务提交后会和ResourceManager通讯申请启动ApplicationMaster，随后ResourceManager分配container，在合适的NodeManager上启动ApplicationMaster，此时的ApplicationMaster就是Driver。
 
@@ -102,7 +102,7 @@ Driver启动后向ResourceManager申请Executor内存，ResourceManager接到App
 ### Spark 通信架构概述
 
 Spark2.x版本使用Netty通讯框架作为内部通讯组件。spark 基于netty新的rpc框架借鉴了Akka的中的设计，它是基于Actor模型，如下图所示：
-<img src="http://img1.sycdn.imooc.com/5e1c41760001f0b009270612.jpg" alt="Actor" style="zoom: 50%;" />
+<img src="E:\JAVA-SUMMARY\Spark\5e1c41760001f0b009270612.jpg" alt="Actor" style="zoom: 50%;" />
 Spark通讯框架中各个组件（Client/Master/Worker）可以认为是一个个独立的实体，各个实体之间通过消息来进行通信。具体各个组件之间的关系图如下：
 <img src="E:\JAVA-SUMMARY\5e1c41770001d37e07690553.jpg" alt="Spark通讯架构" style="zoom: 67%;" />
 
@@ -113,7 +113,7 @@ Endpoint（Client/Master/Worker）有1个InBox和N个OutBox（N>Endpoint（Clien
 ### Spark 通讯架构解析
 
 Spark通信架构如下图所示：
-![Spark通信架构-2](http://img2.sycdn.imooc.com/5e1c417800018c1609640575.jpg)
+![Spark通信架构-2](E:\JAVA-SUMMARY\Spark\5e1c417800018c1609640575.jpg)
 
 1. RpcEndpoint：RPC端点，Spark针对每个节点（Client/Master/Worker）都称之为一个Rpc端点，且都实现RpcEndpoint接口，内部根据不同端点的需求，设计不同的消息和不同的业务处理，如果需要发送（询问）则调用Dispatcher；
 2. RpcEnv：RPC上下文环境，每个RPC端点运行时依赖的上下文环境称为RpcEnv；
@@ -125,7 +125,7 @@ Spark通信架构如下图所示：
 8. TransportClient：Netty通信客户端，一个OutBox对应一个TransportClient，TransportClient不断轮询OutBox，根据OutBox消息的receiver信息，请求对应的远程TransportServer；
 9. TransportServer：Netty通信服务端，一个RpcEndpoint对应一个TransportServer，接受远程消息后调用Dispatcher分发消息至对应收发件箱；
    根据上面的分析，Spark通信架构的高层视图如下图所示：
-   <img src="http://img3.sycdn.imooc.com/5e1c41790001ef9e06980614.jpg" alt="Spark通信架构高层视图" style="zoom:67%;" />
+   <img src="E:\JAVA-SUMMARY\Spark\5e1c41790001ef9e06980614.jpg" alt="Spark通信架构高层视图" style="zoom:67%;" />
 
 ## Spark 任务调度机制
 
@@ -133,9 +133,9 @@ Spark通信架构如下图所示：
 
 ### Spark 任务提交流程
 
-![Yarn-Cluster 任务提交流程](http://img1.sycdn.imooc.com/5e1c417a000117b812010499.jpg)
+![Yarn-Cluster 任务提交流程](E:\JAVA-SUMMARY\Spark\5e1c417a000117b812010499.jpg)
 下面的时序图清晰地说明了一个Spark应用程序从提交到运行的完整流程：
-![Spark任务提交时序图](http://img1.sycdn.imooc.com/5e1c417a000188be09820796.jpg)
+![Spark任务提交时序图](E:\JAVA-SUMMARY\Spark\5e1c417a000188be09820796.jpg)
 提交一个Spark应用程序，首先通过Client向ResourceManager请求启动一个Application，同时检查是否有足够的资源满足Application的需求，如果资源条件满足，则准备ApplicationMaster的启动上下文，交给ResourceManager，并循环监控Application状态。
 
 当提交的资源队列中有资源时，ResourceManager会在某个NodeManager上启动ApplicationMaster进程，ApplicationMaster会单独启动Driver后台线程，当Driver启动后，ApplicationMaster会通过本地的RPC连接Driver，并开始向ResourceManager申请Container资源运行Executor进程（一个Executor对应与一个Container），当ResourceManager返回Container资源，ApplicationMaster则在对应的Container上启动Executor。
@@ -154,20 +154,20 @@ Driver线程主要是初始化SparkContext对象，准备运行所需的上下�
 * Stage是Job的子集，以RDD宽依赖(即Shuffle)为界，遇到Shuffle做一次划分；
 * Task是Stage的子集，以并行度(分区数)来衡量，分区数是多少，则有多少个task。
   Spark的任务调度总体来说分两路进行，一路是Stage级的调度，一路是Task级的调度，总体调度流程如下图所示：
-  ![Spark 任务调度概述](http://img3.sycdn.imooc.com/5e1c417c000175ff11310873.jpg)
+  ![Spark 任务调度概述](E:\JAVA-SUMMARY\Spark\5e1c417c000175ff11310873.jpg)
 
 Spark RDD通过其Transactions操作，形成了RDD血缘关系图，即DAG，最后通过Action的调用，触发Job并调度执行。DAGScheduler负责Stage级的调度，主要是将job切分成若干Stages，并将每个Stage打包成TaskSet交给TaskScheduler调度。TaskScheduler负责Task级的调度，将DAGScheduler给过来的TaskSet按照指定的调度策略分发到Executor上执行，调度过程中SchedulerBackend负责提供可用资源，其中SchedulerBackend有多种实现，分别对接不同的资源管理系统。有了上述感性的认识后，下面这张图描述了Spark-On-Yarn模式下在任务调度期间，ApplicationMaster、Driver以及Executor内部模块的交互过程：
-![Job提交和Task拆分](http://img4.sycdn.imooc.com/5e1c417d0001375710550707.jpg)
+![Job提交和Task拆分](E:\JAVA-SUMMARY\Spark\5e1c417d0001375710550707.jpg)
 
 Driver初始化SparkContext过程中，会分别初始化DAGScheduler、TaskScheduler、SchedulerBackend以及HeartbeatReceiver，并启动SchedulerBackend以及HeartbeatReceiver。SchedulerBackend通过ApplicationMaster申请资源，并不断从TaskScheduler中拿到合适的Task分发到Executor执行。HeartbeatReceiver负责接收Executor的心跳信息，监控Executor的存活状况，并通知到TaskScheduler。
 
 ### Spark Stage级调度
 
 Spark的任务调度是从DAG切割开始，主要是由DAGScheduler来完成。当遇到一个Action操作后就会触发一个Job的计算，并交给DAGScheduler来提交，下图是涉及到Job提交的相关方法调用流程图。
-![Job提交调用栈](http://img2.sycdn.imooc.com/5e1c417e0001e90212360374.jpg)
+![Job提交调用栈](E:\JAVA-SUMMARY\Spark\5e1c417e0001e90212360374.jpg)
 
 Job由最终的RDD和Action方法封装而成，SparkContext将Job交给DAGScheduler提交，它会根据RDD的血缘关系构成的DAG进行切分，将一个Job划分为若干Stages，具体划分策略是，由最终的RDD不断通过依赖回溯判断父依赖是否是宽依赖，即以Shuffle为界，划分Stage，窄依赖的RDD之间被划分到同一个Stage中，可以进行pipeline式的计算，如上图紫色流程部分。划分的Stages分两类，一类叫做ResultStage，为DAG最下游的Stage，由Action方法决定，另一类叫做ShuffleMapStage，为下游Stage准备数据，下面看一个简单的例子WordCount。
-![WordCount实例](http://img1.sycdn.imooc.com/5e1c417f000111b608310305.jpg)
+![WordCount实例](E:\JAVA-SUMMARY\Spark\5e1c417f000111b608310305.jpg)
 Job由saveAsTextFile触发，该Job由RDD-3和saveAsTextFile方法组成，根据RDD之间的依赖关系从RDD-3开始回溯搜索，直到没有依赖的RDD-0，在回溯搜索过程中，RDD-3依赖RDD-2，并且是宽依赖，所以在RDD-2和RDD-3之间划分Stage，RDD-3被划到最后一个Stage，即ResultStage中，RDD-2依赖RDD-1，RDD-1依赖RDD-0，这些依赖都是窄依赖，所以将RDD-0、RDD-1和RDD-2划分到同一个Stage，即ShuffleMapStage中，实际执行的时候，数据记录会一气呵成地执行RDD-0到RDD-2的转化。不难看出，其本质上是一个深度优先搜索算法。
 
 **一个Stage是否被提交，需要判断它的父Stage是否执行，只有在父Stage执行完毕才能提交当前Stage，如果一个Stage没有父Stage，那么从该Stage开始提交。**Stage提交时会将Task信息（分区信息以及方法等）序列化并被打包成TaskSet交给TaskScheduler，一个Partition对应一个Task，另一方面TaskScheduler会监控Stage的运行状态，只有Executor丢失或者Task由于Fetch失败才需要重新提交失败的Stage以调度运行失败的任务，其他类型的Task失败会在TaskScheduler的调度过程中重试。
@@ -177,14 +177,14 @@ Job由saveAsTextFile触发，该Job由RDD-3和saveAsTextFile方法组成，根�
 ### Spark Task 级调度
 
 Spark Task的调度是由TaskScheduler来完成，由前文可知，DAGScheduler将Stage打包到TaskSet交给TaskScheduler，TaskScheduler会将TaskSet封装为TaskSetManager加入到调度队列中，TaskSetManager结构如下图所示。
-![TaskManager结构](http://img2.sycdn.imooc.com/5e1c417f00019e4d02720146.jpg)
+![TaskManager结构](E:\JAVA-SUMMARY\Spark\5e1c417f00019e4d02720146.jpg)
 
 **TaskSetManager负责监控管理同一个Stage中的Tasks，TaskScheduler就是以TaskSetManager为单元来调度任务。**
-![taskmanager-2](http://img1.sycdn.imooc.com/5e1c41800001f67811580651.jpg)
+![taskmanager-2](E:\JAVA-SUMMARY\Spark\5e1c41800001f67811580651.jpg)
 
 前面也提到，TaskScheduler初始化后会启动SchedulerBackend，它负责跟外界打交道，接收Executor的注册信息，并维护Executor的状态，所以说SchedulerBackend是管“粮食”的，同时它在启动后会定期地去“询问”TaskScheduler有没有任务要运行，也就是说，它会定期地“问”TaskScheduler“我有这么余量，你要不要啊”，TaskScheduler在SchedulerBackend“问”它的时候，会从调度队列中按照指定的调度策略选择TaskSetManager去调度运行，大致方法调用流程如下图所示：
 
-![task调度流程](http://img4.sycdn.imooc.com/5e1c418000010db710340394.jpg)
+![task调度流程](E:\JAVA-SUMMARY\Spark\5e1c418000010db710340394.jpg)
 
 将TaskSetManager加入rootPool调度池中之后，调用SchedulerBackend的riviveOffers方法给driverEndpoint发送ReviveOffer消息；**driverEndpoint收到ReviveOffer消息后调用makeOffers方法，过滤出活跃状态的Executor（这些Executor都是任务启动时反向注册到Driver的Executor），然后将Executor封装成WorkerOffer对象；准备好计算资源（WorkerOffer）后，taskScheduler基于这些资源调用resourceOffer在Executor上分配task。**
 
@@ -192,19 +192,19 @@ Spark Task的调度是由TaskScheduler来完成，由前文可知，DAGScheduler
 
 前面讲到，TaskScheduler会先把DAGScheduler给过来的TaskSet封装成TaskSetManager扔到任务队列里，然后再从任务队列里按照一定的规则把它们取出来在SchedulerBackend给过来的Executor上运行。这个调度过程实际上还是比较粗粒度的，是面向TaskSetManager的。
 TaskScheduler是以树的方式来管理任务队列，树中的节点类型为Schdulable，叶子节点为TaskSetManager，非叶子节点为Pool，下图是它们之间的继承关系。
-![任务队列继承关系](http://img1.sycdn.imooc.com/5e1c41810001d37806790452.jpg)
+![任务队列继承关系](E:\JAVA-SUMMARY\Spark\5e1c41810001d37806790452.jpg)
 
 TaskScheduler**支持两种调度策略，一种是FIFO，也是默认的调度策略，另一种是FAIR**。在TaskScheduler初始化过程中会实例化rootPool，表示树的根节点，是Pool类型。
 
 ##### FIFO调度策略
 
 如果是采用FIFO调度策略，则直接简单地将TaskSetManager按照先来先到的方式入队，出队时直接拿出最先进队的TaskSetManager，其树结构如下图所示，TaskSetManager保存在一个FIFO队列中。
-![FIFO调度策略内存结构](http://img2.sycdn.imooc.com/5e1c4181000138c106190289.jpg)
+![FIFO调度策略内存结构](E:\JAVA-SUMMARY\Spark\5e1c4181000138c106190289.jpg)
 
 ##### FAIR 调度策略
 
 FAIR调度策略的树结构如下图所示：
-![FAIR调度策略内存结构](http://img1.sycdn.imooc.com/5e1c41830001583905940595.jpg)
+![FAIR调度策略内存结构](E:\JAVA-SUMMARY\Spark\5e1c41830001583905940595.jpg)
 
 FAIR模式中有一个rootPool和多个子Pool，各个子Pool中存储着所有待分配的TaskSetMagager。
 在FAIR模式中，需要先对子Pool进行排序，再对子Pool里面的TaskSetMagager进行排序，因为Pool和TaskSetMagager都继承了Schedulable特质，因此使用相同的排序算法。
@@ -242,7 +242,7 @@ DAGScheduler切割Job，划分Stage, 通过调用submitStage来提交一个Stage
 #### 失败重试与黑名单机制
 
 除了选择合适的Task调度运行外，还需要监控Task的执行状态，前面也提到，与外部打交道的是SchedulerBackend，Task被提交到Executor启动执行后，Executor会将执行状态上报给SchedulerBackend，SchedulerBackend则告诉TaskScheduler，TaskScheduler找到该Task对应的TaskSetManager，并通知到该TaskSetManager，这样TaskSetManager就知道Task的失败与成功状态，对于失败的Task，会记录它失败的次数，如果失败次数还没有超过最大重试次数，那么就把它放回待调度的Task池子中，否则整个Application失败。
-![失败重试与黑名单机制-模块交互过程](http://img1.sycdn.imooc.com/5e1c41830001f67811580651.jpg)
+![失败重试与黑名单机制-模块交互过程](E:\JAVA-SUMMARY\Spark\5e1c41830001f67811580651.jpg)
 在记录Task失败次数过程中，会记录它上一次失败所在的Executor Id和Host，这样下次再调度这个Task时，会使用黑名单机制，避免它被调度到上一次失败的节点上，起到一定的容错作用。黑名单记录Task上一次失败所在的Executor Id和Host，以及其对应的“拉黑”时间，“拉黑”时间是指这段时间内不要再往这个节点上调度这个Task了。
 
 ## Spark Shuffle 解析
@@ -291,7 +291,7 @@ DAGScheduler切割Job，划分Stage, 通过调用submitStage来提交一个Stage
 shuffle read的拉取过程是一边拉取一边进行聚合的。每个shuffle read task都会有一个自己的buffer缓冲，**每次都只能拉取与buffer缓冲相同大小的数据，然后通过内存中的一个Map进行聚合等操作**。聚合完一批数据后，再拉取下一批数据，并放到buffer缓冲中进行聚合操作。以此类推，直到最后将所有数据到拉取完，并得到最终的结果。
 
 未优化的HashShuffleManager工作原理如图所示：
-![未优化的HashShuffleManager工作原理](http://img1.sycdn.imooc.com/5e1c41e70001154308160436.jpg)
+![未优化的HashShuffleManager工作原理](E:\JAVA-SUMMARY\Spark\5e1c41e70001154308160436.jpg)
 
 #### 优化后的HashShuffleManager
 
@@ -304,7 +304,7 @@ shuffle read的拉取过程是一边拉取一边进行聚合的。每个shuffle 
 假设第二个stage有100个task，第一个stage有50个task，总共还是有10个Executor（Executor CPU个数为1），每个Executor执行5个task。那么原本使用未经优化的HashShuffleManager时，每个Executor会产生500个磁盘文件，所有Executor会产生5000个磁盘文件的。但是此时经过优化之后，每个Executor创建的磁盘文件的数量的计算公式为：CPU core的数量 * 下一个stage的task数量，也就是说，每个Executor此时只会创建100个磁盘文件，所有Executor只会创建1000个磁盘文件。
 
 优化后的HashShuffleManager工作原理如图所示：
-![优化后的HashShuffleManager工作原理](http://img4.sycdn.imooc.com/5e1c41e900012f9d08140434.jpg)
+![优化后的HashShuffleManager工作原理](E:\JAVA-SUMMARY\Spark\5e1c41e900012f9d08140434.jpg)
 
 #### SortShuffle解析
 
@@ -321,7 +321,7 @@ SortShuffleManager的运行机制主要分成两种，一种是普通运行机�
 SortShuffleManager由于有一个磁盘文件merge的过程，因此大大减少了文件数量。比如第一个stage有50个task，总共有10个Executor，每个Executor执行5个task，而第二个stage有100个task。由于每个task最终只有一个磁盘文件，因此此时每个Executor上只有5个磁盘文件，所有Executor只有50个磁盘文件。
 
 普通运行机制的SortShuffleManager工作原理如图所示：
-![普通运行机制的SortShuffleManager工作原理](E:\JAVA-SUMMARY\5e1c41eb000117a407710725.jpg)
+![普通运行机制的SortShuffleManager工作原理](E:\JAVA-SUMMARY\Spark\5e1c41eb000117a407710725.jpg)
 
 ##### **bypass运行机制**
 
@@ -337,7 +337,7 @@ SortShuffleManager由于有一个磁盘文件merge的过程，因此大大减少
 而该机制与普通SortShuffleManager运行机制的不同在于：**第一，磁盘写机制不同；第二，不会进行排序。**也就是说，启用该机制的最大好处在于，shuffle write过程中，不需要进行数据的排序操作，也就节省掉了这部分的性能开销。
 
 bypass运行机制的SortShuffleManager工作原理如图所示：
-![bypass运行机制的SortShuffleManager工作原理](E:\JAVA-SUMMARY\5e1c41ed0001f9e613520869.jpg)
+![bypass运行机制的SortShuffleManager工作原理](E:\JAVA-SUMMARY\Spark\5e1c41ed0001f9e613520869.jpg)
 
 ## Spark 内存管理
 
@@ -347,7 +347,7 @@ bypass运行机制的SortShuffleManager工作原理如图所示：
 
 作为一个 JVM 进程，Executor 的内存管理建立在 JVM 的内存管理之上，Spark 对 JVM 的堆内（On-heap）空间进行了更为详细的分配，以充分利用内存。同时，Spark 引入了堆外（Off-heap）内存，使之可以直接在工作节点的系统内存中开辟空间，进一步优化了内存的使用。
 **堆内内存受到JVM统一管理，堆外内存是直接向操作系统进行内存的申请和释放。**
-![Executor堆内与堆外内存](http://img1.sycdn.imooc.com/5e1c41ee0001aad506400495.jpg)
+![Executor堆内与堆外内存](E:\JAVA-SUMMARY\Spark\5e1c41ee0001aad506400495.jpg)
 
 #### 堆内内存
 
@@ -387,7 +387,7 @@ Spark 对堆内内存的管理是一种逻辑上的”规划式”的管理，�
 #### 静态内存管理
 
 在 Spark 最初采用的静态内存管理机制下，存储内存、执行内存和其他内存的大小在 Spark 应用程序运行期间均为固定的，但用户可以应用程序启动前进行配置，堆内内存的分配如图所示：
-![静态内存管理——堆内内存](http://img1.sycdn.imooc.com/5e1c41f0000179fe06900396.jpg)
+![静态内存管理——堆内内存](E:\JAVA-SUMMARY\Spark\5e1c41f0000179fe06900396.jpg)
 
 ```shell
 # 堆内内存计算公式
@@ -400,16 +400,16 @@ Spark 对堆内内存的管理是一种逻辑上的”规划式”的管理，�
 Storage内存和Execution内存都有预留空间，目的是防止OOM，因为Spark堆内内存大小的记录是不准确的，需要留出保险区域。
 
 堆外的空间分配较为简单，只有存储内存和执行内存，如图1-3所示。可用的执行内存和存储内存占用的空间大小直接由参数spark.memory.storageFraction 决定，由于堆外内存占用的空间可以被精确计算，所以无需再设定保险区域。
-![静态内存管理](http://img2.sycdn.imooc.com/5e1c41f00001f31806900327.jpg)
+![静态内存管理](E:\JAVA-SUMMARY\Spark\5e1c41f00001f31806900327.jpg)
 静态内存管理机制实现起来较为简单，但如果用户不熟悉 Spark 的存储机制，或没有根据具体的数据规模和计算任务或做相应的配置，很容易造成”一半海水，一半火焰”的局面，即存储内存和执行内存中的一方剩余大量的空间，而另一方却早早被占满，不得不淘汰或移出旧的内容以存储新的内容。由于新的内存管理机制的出现，这种方式目前已经很少有开发者使用，出于兼容旧版本的应用程序的目的，Spark 仍然保留了它的实现。
 
 #### 统一内存管理
 
 Spark 1.6 之后引入的统一内存管理机制，与静态内存管理的区别在于存储内存和执行内存共享同一块空间，可以动态占用对方的空闲区域，统一内存管理的堆内内存结构如图所示：
 
-![统一内存管理——堆内内存](http://img1.sycdn.imooc.com/5e1c41f1000102ab06900386.jpg)
+![统一内存管理——堆内内存](E:\JAVA-SUMMARY\Spark\5e1c41f1000102ab06900386.jpg)
 
-![统一内存管理——堆外内存](http://img2.sycdn.imooc.com/5e1c41f2000106c006900332.jpg)
+![统一内存管理——堆外内存](E:\JAVA-SUMMARY\Spark\5e1c41f2000106c006900332.jpg)
 
 其中最重要的优化在于动态占用机制，其规则如下：
 
@@ -419,7 +419,7 @@ Spark 1.6 之后引入的统一内存管理机制，与静态内存管理的区�
 4. **存储内存的空间被对方占用后，无法让对方”归还”，因为需要考虑 Shuffle 过程中的很多因素，实现起来较为复杂。**
    统一内存管理的动态占用机制如图所示：
 
-![同一内存管理——动态占用机制](http://img1.sycdn.imooc.com/5e1c41f200015c4506900280.jpg)
+![同一内存管理——动态占用机制](E:\JAVA-SUMMARY\Spark\5e1c41f200015c4506900280.jpg)
 凭借统一内存管理机制，Spark 在一定程度上提高了堆内和堆外内存资源的利用率，降低了开发者维护 Spark 内存的难度，但并不意味着开发者可以高枕无忧。如果存储内存的空间太大或者说缓存的数据过多，反而会导致频繁的全量垃圾回收，降低任务执行时的性能，因为**缓存的 RDD 数据通常都是长期驻留内存的**。所以要想充分发挥 Spark 的性能，需要开发者进一步了解存储内存和执行内存各自的管理方式和实现原理。
 
 ### 存储内存管理
@@ -436,7 +436,7 @@ RDD 的持久化由 Spark 的 **Storage 模块负责**，实现了 RDD 与物理
 
 Storage 模块在逻辑上**以 Block 为基本存储单位**，**RDD 的每个 Partition 经过处理后唯一对应一个 Block**（BlockId 的格式为 rdd_RDD-ID_PARTITION-ID ）。**Driver端的Master 负责整个 Spark 应用程序的 Block 的元数据信息的管理和维护，而Executor端的 Slave 需要将 Block 的更新等状态上报到 Master，同时接收 Master 的命令，例如新增或删除一个 RDD。**
 
-![Storage模块示意图](http://img1.sycdn.imooc.com/5e1c41f300011d4405820301.jpg)
+![Storage模块示意图](E:\JAVA-SUMMARY\Spark\5e1c41f300011d4405820301.jpg)
 在对 RDD 持久化时，Spark 规定了 MEMORY_ONLY、MEMORY_AND_DISK 等 7 种不同的存储级别 ，而存储级别是以下 5 个变量的组合：
 
 ```scala
@@ -480,7 +480,7 @@ Block 有序列化和非序列化两种存储格式，具体以哪种方式取�
 对于非序列化的 Partition 则要在遍历 Record 的过程中依次申请，即每读取一条 Record，采样估算其所需的 Unroll 空间并进行申请，空间不足时可以中断，释放已占用的 Unroll 空间。
 
 如果最终 Unroll 成功，当前 Partition 所占用的 Unroll 空间被转换为正常的缓存 RDD 的存储空间，如下图所示。
-![Spark Unroll](E:\JAVA-SUMMARY\5e1c41f40001cefd05820373.jpg)
+![Spark Unroll](E:\JAVA-SUMMARY\Spark\5e1c41f40001cefd05820373.jpg)
 
 #### 淘汰与落盘
 
@@ -532,7 +532,7 @@ Tungsten 页式管理下的所有内存用 64 位的逻辑地址表示，由页�
 
 **每个节点都有一个BlockManager**，每个BlockManager创建之后，第一件事即使去向BlockManagerMaster进行注册，此时BlockManagerMaster会为其创建对应的BlockManagerInfo。
 BlockManager运行原理如下图所示：
-![BlockManager原理](http://img1.sycdn.imooc.com/5e1c41f500014c0111520745.jpg)
+![BlockManager原理](E:\JAVA-SUMMARY\Spark\5e1c41f500014c0111520745.jpg)
 **BlockManagerMaster与BlockManager的关系非常像NameNode与DataNode的关系**，BlockManagerMaster中保存中BlockManager内部管理数据的元数据，进行维护，当BlockManager进行Block增删改等操作时，都会在BlockManagerMaster中进行元数据的变更，这与NameNode维护DataNode的元数据信息，DataNode中数据发生变化时NameNode中的元数据信息也会相应变化是一致的。
 
 每个节点上都有一个BlockManager，BlockManager中有3个非常重要的组件：
@@ -562,7 +562,7 @@ Spark一个非常重要的特性就是共享变量。
 广播变量允许编程者在每个Executor上保留外部数据的只读变量，而不是给每个任务发送一个副本。
 
 **每个task都会保存一份它所使用的外部变量的副本**，当一个Executor上的多个task都使用一个大型外部变量时，对于Executor内存的消耗是非常大的，因此，我们可以将**大型外部变量封装为广播变量**，此时**一个Executor保存一个变量副本**，此Executor上的所有task共用此变量，不再是一个task单独保存一个副本，这在一定程度上降低了Spark任务的内存占用。
-![使用广播变量](E:\JAVA-SUMMARY\5e1c41f60001f53605170319.jpg)
+![使用广播变量](E:\JAVA-SUMMARY\Spark\5e1c41f60001f53605170319.jpg)
 
 Spark还尝试使用高效的广播算法分发广播变量，以降低通信成本。
 
@@ -584,6 +584,6 @@ Spark提供的Broadcast Variable是只读的，并且在每个Executor上只会�
 Spark提供的Accumulator主要用于多个节点对一个变量进行共享性的操作。Accumulator只提供了累加的功能，但是却给我们提供了多个task对于同一个变量并行操作的功能，但是**task只能对Accumulator进行累加操作，不能读取它的值，只有Driver程序可以读取Accumulator的值**。
 
 Accumulator的底层原理如下图所示：
-![累加器原理](http://img4.sycdn.imooc.com/5e1c41f80001b04810280669.jpg)
+![累加器原理](E:\JAVA-SUMMARY\Spark\5e1c41f80001b04810280669.jpg)
 
 
