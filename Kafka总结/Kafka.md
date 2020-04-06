@@ -58,9 +58,169 @@ Kafka中的消息根据主题（Topic）来分类，每个主题又分为不同�
 
 集群（Cluster）由Broker组成，每个集群都有一个Controller负责将分区分配给Broker和监控Broker。
 
-## 二、Kafka生产者
+## 二、Kafka数据存储机制
+
+### 1. Kafka文件存储机制
+
+Kafka中的消息是以topic进行分类的，topic是逻辑上的概念，而partition是物理上的概念。每个partition对应一个log文件，存储的就是producer生产的数据。Producer生产的每条数据都会追加到文件的末端，每条数据都有自己的offset，消费者组的每个消费者都会实时记录自己消费到哪个offset。
+
+为防止log文件过大导致数据定位效率低下，Kafka采用了分段和索引机制，将每个partition分为多个segment，每个segment对应两个文件——“.index” “.log”，分别保存索引和数据。索引文件中保存数据文件中message的offset。
+
+![1586066094140](C:\Users\weitu\AppData\Roaming\Typora\typora-user-images\1586066094140.png)
 
 
 
+### 2. Kafka副本机制
 
+为了保证高可用，Kafka的每个分区都是多副本的。其中，一个副本是leader replica，其他副本是follower replica。当一个首领副本不可用时，其中一个跟随着副本将成为新首领。
 
+#### 2.1 ISR（in-sync Replica）机制
+
+每个分区都维护一个isr列表，用于维护所有同步的可用的副本，对应跟随着副本来说，他必须满足以下条件才能被认为是同步副本：
+
+* 定时向Zookeeper发送心跳；
+* 在规定的时间内从leader处低延迟的获取过消息。
+
+如果长时间follower未向leader同步数据，则该follower将被踢出isr，改时间阈值由`replica.time.max.ms`设定。
+
+#### 2.2 不完全的首领选举
+
+对于副本机制，在broker级别有一个可选的配置参数`unclean.leader.election.enable`，默认禁止，这是针对leader挂掉且isr中没有其他可用副本时，是否允许某个不完全同步的副本成为首领副本。
+
+#### 2.3 最少同步副本
+
+在broker或topic级别，可以配置`min.insync.replicas`，代表当isr队列中可用副本的最小值，如果isr副本数量小于该值时，就认为整个分区处于不可用状态。
+
+#### 2.4 数据保留规则
+
+保留数据是 Kafka 的一个基本特性， 但是 Kafka 不会一直保留数据，也不会等到所有消费者都读取了消息之后才删除消息。相反， Kafka 为每个主题配置了数据保留期限，规定数据被删除之前可以保留多长时间，或者清理数据之前可以保留的数据量大小。分别对应以下四个参数：
+
+- `log.retention.bytes` ：删除数据前允许的最大数据量；默认值-1，代表没有限制；
+- `log.retention.ms`：保存数据文件的毫秒数，如果未设置，则使用 `log.retention.minutes` 中的值，默认为 null；
+- `log.retention.minutes`：保留数据文件的分钟数，如果未设置，则使用 `log.retention.hours` 中的值，默认为 null；
+- `log.retention.hours`：保留数据文件的小时数，默认值为 168，也就是一周。
+
+### 3. 数据请求
+
+#### 3.1 元数据请求机制
+
+所有副本中，只有leader副本才可以进行消息的读写处理。由于不同分区的leader可能在不同的broker上，Kafka提供了元数据请求机制。
+
+集群中的每个broker都会缓存所有主题的分区副本信息，客户端会定期发送元数据请求，将元数据缓存。这样客户端就知道了leader副本所在的broker。
+
+#### 3.2 零拷贝(Kafka高性能的原因之一)
+
+“零拷贝”通常是指计算机在网络上发送文件时，不需要将文件内容拷贝到用户空间（User Space）而直接在内核空间（Kernel Space）中传输到网络的方式。
+Kafka所有数据的写如何读取都是通过零拷贝实现的。
+
+##### 优势
+
+- 减少甚至完全避免不必要的CPU拷贝，从而让CPU解脱出来去执行其他的任务
+- 减少内存带宽的占用
+- 通常零拷贝技术还能够减少用户空间和操作系统内核空间之间的上下文切换
+
+##### 传统I/O：四次拷贝与四次上下文切换
+
+以将磁盘文件发送到网络为例，传统模式下系统调用如下：
+
+```c
+read(file,tmp_buf,len)
+write(socket,tmp_buf,len)
+```
+
+* 程序使用read()系统调用。系统由用户态转换为内核态(第一次上下文切换)，磁盘中的数据由DMA（Direct Memory Access)的方式读取到内核缓冲区(kernel buffer)。DMA过程中CPU不需要参与数据的读写，而是DMA处理器直接将硬盘数据通过总线传输到内存中。
+* 系统由内核态转换为用户态（第二次上下文切换），当程序要读取的数据已经完成写入内核缓冲区以后，程序会将数据由内核缓存区，写入用户缓存区），这个过程需要CPU参与数据的读写。
+* 程序使用write()系统调用。系统由用户态切换到内核态(第三次上下文切换)，数据从用户态缓冲区写入到网络缓冲区(Socket Buffer)，这个过程需要CPU参与数据的读写。
+* 系统由内核态切换到用户态（第四次上下文切换），网络缓冲区的数据通过DMA的方式传输到网卡的驱动(存储缓冲区)中(protocol engine)
+
+**传统的I/O方式会经过4次用户态和内核态的切换(上下文切换)，两次CPU中内存中进行数据读写的过程。这种拷贝过程相对来说比较消耗资源。** 
+
+##### 内存映射方式I/O：两次拷贝与四次上下文切换
+
+```c
+tmp_buf = mmap(file, len);
+write(socket, tmp_buf, len);
+```
+
+这是使用的系统调用方法，这种方式的I/O原理就是将用户缓冲区（user buffer）的内存地址和内核缓冲区（kernel buffer）的内存地址做一个映射，也就是说系统在用户态可以直接读取并操作内核空间的数据。
+
+1. mmap()系统调用首先会使用DMA的方式将磁盘数据读取到内核缓冲区，然后通过内存映射的方式，使用户缓冲区和内核读缓冲区的内存地址为同一内存地址，也就是说不需要CPU再讲数据从内核读缓冲区复制到用户缓冲区。
+2. 当使用write()系统调用的时候，cpu将内核缓冲区（等同于用户缓冲区）的数据直接写入到网络发送缓冲区（socket buffer），然后通过DMA的方式将数据传入到网卡驱动程序中准备发送。
+
+可以看到这种内存映射的方式减少了CPU的读写次数，但是用户态到内核态的切换（上下文切换）依旧有四次，同时需要注意在**进行这种内存映射的时候，有可能会出现并发线程操作同一块内存区域而导致的严重的数据不一致问题**，所以需要进行合理的并发编程来解决这些问题。
+
+##### 零拷贝：两次拷贝与两次上下文切换
+
+```c
+sendfile(socket, file, len);
+```
+
+CPU已经不参与数据的拷贝过程，也就是说完全通过其他硬件和中断的方式来实现数据的读写过程吗，但是这样的过程需要硬件的支持才能实现。
+
+> 借助于硬件上的帮助，我们是可以办到的。之前我们是把页缓存的数据拷贝到socket缓存中，实际上，我们仅仅需要把缓冲区描述符传到socket缓冲区，再把数据长度传过去，这样DMA控制器直接将页缓存中的数据打包发送到网络中就可以了。
+
+1. 系统调用sendfile()发起后，磁盘数据通过DMA方式读取到内核缓冲区，内核缓冲区中的数据通过DMA聚合网络缓冲区，然后一齐发送到网卡中。
+
+可以看到在这种模式下，是没有一次CPU进行数据拷贝的，所以就做到了真正意义上的零拷贝，这种模式实现起来需要硬件的支持。
+
+## 三、Kafka生产者
+
+### 1. 分区策略
+
+Linux2.4+内核通过sendfile系统调用,提供了零拷贝.数据通过DMA拷贝到内核态Buffer后,直接通过DMC拷贝到NIC Buffer
+
+#### 1.1 分区原因
+
+* 提高并发
+* 方便集群中扩展
+
+#### 1.2 分区策略
+
+* 可指定partition；
+* 有key值的情况下，将key的hash值与topic的partition数取余；
+* 第一次调用随机生成一个整数（后面每次调用时在这个数上自增），再对partition数取余。（round-robin算法）
+
+### 2. 数据可靠性保证
+
+为保证 producer 发送的数据，能可靠的发送到指定的 topic， topic 的每个 partition 收到producer 发送的数据后， 都需要向 producer 发送 ack（acknowledgement 确认收到） ，如果producer 收到 ack， 就会进行下一轮的发送，否则重新发送数据。  
+
+#### 2.1 三种可靠性级别
+
+* acks=0：producer不等待broker的ack，当broker故障时会丢失数据；
+* acks=1：producer等待leader收到数据后返回ack，如果在producer同步完成前leader故障，会丢失数据。
+* acks=-1(all)：producer等待partition的leader和所有follower成功同步后返回ack，如果返回ack前故障，会造成数据重复。
+
+#### 2.2 故障处理
+
+**LEO（Log End Offset）**：每个副本的最后一个offset
+
+**HW（High Watermark）**：所有副本的最小LEO
+
+##### 2.2.1 follower故障
+
+follower会被踢出isr，恢复后，follower读取本地磁盘记录的上次的HW，并将log文件高于HW的部分截取掉，从HW开始向leader进行同步，等follower的LEO大于等于该partition的HW后，就可以重新加入isr。
+
+##### 2.2.2 leader故障
+
+leader 发生故障之后，会从 ISR 中选出一个新的 leader，之后，为保证多个副本之间的，  数据一致性， 其余的 follower 会先将各自的 log 文件高于 HW 的部分截掉，然后从新的 leader同步数据。  
+
+  3.2.3 Exactly Once 语义
+将服务器的 ACK 级别设置为-1，可以保证 Producer 到 Server 之间不会丢失数据，即 At
+Least Once 语义。相对的，将服务器 ACK 级别设置为 0，可以保证生产者每条消息只会被
+发送一次，即 At Most Once 语义。
+At Least Once 可以保证数据不丢失，但是不能保证数据不重复；相对的， At Least Once
+可以保证数据不重复，但是不能保证数据不丢失。 但是，对于一些非常重要的信息，比如说
+交易数据，下游数据消费者要求数据既不重复也不丢失，即 Exactly Once 语义。 在 0.11 版
+本以前的 Kafka，对此是无能为力的，只能保证数据不丢失，再在下游消费者对数据做全局
+去重。对于多个下游应用的情况，每个都需要单独做全局去重，这就对性能造成了很大影响。
+0.11 版本的 Kafka，引入了一项重大特性：幂等性。所谓的幂等性就是指 Producer 不论
+向 Server 发送多少次重复数据， Server 端都只会持久化一条。幂等性结合 At Least Once 语
+义，就构成了 Kafka 的 Exactly Once 语义。即：
+At Least Once + 幂等性 = Exactly Once
+要启用幂等性，只需要将 Producer 的参数中 enable.idompotence 设置为 true 即可。 Kafka
+的幂等性实现其实就是将原来下游需要做的去重放在了数据上游。开启幂等性的 Producer 在
+初始化的时候会被分配一个 PID，发往同一 Partition 的消息会附带 Sequence Number。而
+Broker 端会对<PID, Partition, SeqNumber>做缓存，当具有相同主键的消息提交时， Broker 只
+会持久化一条。
+但是 PID 重启就会变化，同时不同的 Partition 也具有不同主键，所以幂等性无法保证跨
+分区跨会话的 Exactly Once。  
