@@ -99,7 +99,7 @@ Secondary NameNode恢复NameNode的方法：
 
 #### 2.1 文件读取流程剖析（重要）
 
-![1586269880115](picture\read.jpg)
+<img src="picture\read.jpg" alt="1586269880115" style="zoom:67%;" />
 
 ```java
 public static void getFileFromHDFS() throws IOException, InterruptedException, URISyntaxException {
@@ -175,7 +175,7 @@ public static void getFileFromHDFS() throws IOException, InterruptedException, U
 
 #### 2.2 文件写入流程剖析（重要）
 
-![1586269992823](picture\write.jpg)
+<img src="picture\write.jpg" alt="1586269992823" style="zoom:67%;" />
 
 ```java
 public void putFileToHDFS() throws IOException, InterruptedException, URISyntaxException {
@@ -244,7 +244,7 @@ HadoopArchives能够将多个小文件打包成一个HAR文件，这样在减少
 
 但访问一个指定的小文件需要访问两层索引文件才能获取小文件在HAR文件中的存储位置，因此，访问一个HAR文件的效率可能会比直接访问HDFS文件要低。**对于一个mapreduce任务来说，如果使用HAR文件作为其输入，仍旧是其中每个小文件对应一个map task，效率低下。所以，HAR files最好是用于文件归档。**
 
-<img src="picture\har.png" alt="1586350902340" style="zoom: 50%;" />
+<img src="picture\har.png" alt="1586350902340" style="zoom: 33%;" />
 
 ————————————————
 参考：CSDN博主「寒江一叶舟」的[原创文章](https://blog.csdn.net/zyd94857/article/details/79946773)，遵循 CC 4.0 BY-SA 版权协议
@@ -539,67 +539,119 @@ public class SequenceFileDriver {
 
 ```
 
-MapReduce工作机制
+### 3. MapReduceTask工作流程
 
-![img](file:///C:/Users/weitu/AppData/Local/Temp/msohtmlclip1/01/clip_image010.png)
+#### 3.1 概述
 
-图4-6 MapReduce详细工作流程（一）
+MapReduce框架中，一个Task被分为Map和Reduce两个阶段，每个MapTask处理数据集合中的一个split并将产生的数据溢写入本地磁盘；而每个ReduceTask远程通过HTTP以pull的方式拉取相应的中间数据文件，经过合并计算后将结果写入HDFS。
 
-![img](file:///C:/Users/weitu/AppData/Local/Temp/msohtmlclip1/01/clip_image012.png)
+#### 3.2 MapTask
 
-MapReduce中的排序
+<img src="picture\shuffle.png" alt="1586412639068" style="zoom: 33%;" />
 
-快速排序，归并排序
+客户端提交任务，规划切片，并将切片文件，程序jar包与任务配置文件上传，Hadoop集群分配节点执行任务；
 
-Shuffle阶段的工作流程，如何优化shuffle
+* **Read阶段**：MapTask按InputFormat中定义的方法将数据读取如内存；
 
-分区，排序，溢写，拷贝到对应的reduce机器上，
+* **Map阶段**：将内存中的数据按map()函数定义的方法处理成K-V对的形式；
 
-优化：增加combiner（不可对），增加环形缓冲区大小（默认100M），增大溢写的阈值（默认80%），增大合并溢写文件的此处，reduce端可部分数据存放在内存中，对中间文件压缩。
+* **Collect阶段**：将K-V对的数据与索引向两个方向写入环形缓冲区（默认100M大小）；
 
-Combiner的作用，使用场景，和reduce的区别
+  * 调用Partitioner.getPartition()获取记录的分区号，再将<key,value,partition>传给MapOutputBuffer.collect()做进一步处理；
 
-作用：对每一个mapTask进行局部汇总，减小io
+  * MapOutputBuffer内部使用了一个缓冲区暂时存储用户输出数据。几种不同的缓冲区优劣：
 
-使用场景：不能影响最终业务逻辑，如求均值不可，汇总可以；combiner的输出（k,v）类型要和reduce的输入（k,v）类型对应起来。
+    *  单向缓冲区：生产者像缓冲区中单向写，写满后一次性写磁盘。性能低，不能同时读写数据。
+    * 双缓冲区：一个用于写入数据，一个用于溢写磁盘，交替读写。仍会存在读写等待问题。
+    * 环形缓冲区：缓冲区使用率达到一定阈值后便开始溢写磁盘，同时生产者仍可以像不断增加的剩余空间中循环写入数据，读写并行。
 
-区别：combiner在每一个mapTask所在的节点运行，reducer是在接收全局所有的Mapper的输出结果。
+  * 环形缓冲区实际是通过一个线性缓冲区模拟，通过取模操作实现循环取数据。缓冲区的读写采用的是典型的但生产者消费者模型。
 
-Partition作用，默认的Partition方法
+  * Hadoop2.x让kvmeta、kvbuffer共用一个环形缓冲区，Hadoop0.22之前是采用了两级索引结构，涉及三个缓冲区，分别为kvoffsets、kvindices、kvbuffer。
 
-作用：不同的分区号会对应不同的reduceTask。
+  * 实际实现中元数据信息是从末尾到头的顺序写入数组，元数据16byte，包括index、partition、keystart、valuestart。
 
-默认：每一条数据的key的hashCode值%redduce的数量。
+    ![1586410952072](picture\kv.png)
 
-TopN如何实现
+* **Spill阶段**：缓冲区内存占用到80%（默认）后溢写入本地磁盘；
 
-小顶堆，Reduce端放入TreeMap
+  * 溢写入磁盘之前会对缓冲区中的数据先按照分区编号Partition再按key进行排序 ，使用的是Hadoop自己实现的快速排序，Hadoop中快速排序的优化体现在：
 
-Hadoop任务输出到多个目录中/MySQL/HBase...
+    （1）枢轴选择：中位数中元素作为枢轴；
 
-自定义OutputFormat，改写recordwriter.write()。
+    （2）子序列划分：左右两个扫描的索引遇到元素大于等于/小于等于枢轴元素时才会停止；
 
-Hadoop实现join的几种方法
+    （3）对相同元素的优化：将序列化分为三部分，中间部分为与枢轴相同的元素，不参与后续的递归；
 
-Reduce join（连接键作为k）
+    （4）减少递归次序：子序列中元素数目小于13时使用插入排序，不再继续递归。
 
-map join(推荐)(驱动中加载缓存，重写setup阶段)
+  * 按照分区编号由小到大依次将每个分区中的数据写入任务工作目录下的临时文件output/spillN.out（N表示当前溢写次数）中。如果用户设置了Combiner，则写入文件之前，对每个分区中的数据进行一次聚集操作。  
 
-map端二级排序
+  *  将分区数据的元信息写到内存索引数据结构SpillRecord中，其中每个分区的元信息包括在临时文件中的偏移量、压缩前数据大小和压缩后数据大小。如果当前内存索引大小超过1MB，则将内存索引写到文件output/spillN.out.index中。  
 
-重写compareTo()
+  * 溢写同时仍然可以写入数据。
 
-Hdfs分块
+* **Combiner阶段**：当所有数据处理完成后，MapTask对所有临时文件进行合并、排序，最后只会生成一个数据文件
 
-文件在hdfs中分块，一旦超过块大小就会新增一个块
+  * 按分区合并文件，对于某个分区，采用多轮归并的方式排序合并；
+  * 每轮合并100（默认）个文件，并将新文件加入待合并列表中，知道得到最后一个大文件。MapTask的输出结果保存为IFile的格式（支持按行压缩，可用Zlib、BZip2等压缩算法减小IO数据量）
 
-mr的 split中分片，如果超出1.1倍才会被分片
+#### 3.3 ReduceTask
 
-Hadoop中RecordReader作用是什么
+ReduceTask从各个MapTask上读取数据，排序后以组为单位交给reduce()函数处理并将结果写入HDFS。
 
-在FileInputFormat中，用来读文件，默认按行读（LineRecordReader）。
+<img src="picture\reduce.png" alt="1586412707867" style="zoom:33%;" />
 
-手撕MapReduce代码
+* **Shuffle阶段**：ReduceTask从各个MapTask上拷贝一片数据，针对每一片数据，如果其大小超过阈值，则写入磁盘，否则直接放在内存中。Map阶段完成至少进行5%以后开始拷贝。
+
+* **Merge阶段**：拷贝远程数据的同时，ReduceTask启动两个后台线程对内存和磁盘上的文件合并。（归并排序）
+
+  Shuffle和Merge过程可以分为三个子阶段：
+
+  * GetMapEventsThread线程周期性（心跳间隔）通过RPC从TaskTracker获取已完成的MapTask列表。
+  * ReduceTask同时启动多个MapOutputCopier线程（默认5个），通过HTTP Get远程拷贝数据，存入内存或磁盘中。
+  * ReduceTask启动LocalFSMerger和InMemFSMergeThread两个线程进行Merge。
+  * 当内存中的数据已占有超过66%的堆内存、或内存中文件数超过1000个或阻塞在ShuffleRamManager上的请求数大于拷贝线程数的75%时，内存中的数据会溢写入磁盘。
+
+* **Sort阶段**：Merge阶段已经减少了文件数目，这阶段只需对所有数据进行一次归并排序即可。
+
+* **Reduce阶段**：按key将数据传入reduce()函数中聚合。
+
+  * Sort阶段与Reduce阶段也是并行的。在Sort阶段，ReduceTask为内存和磁盘中的文件建立了小顶堆，保存了指向根节点的迭代器。ReduceTask不断移动迭代器，以将相同key的数据顺次交给reduce()函数处理。移动迭代器的过程其实就是不断调整小顶堆的过程。
+  * 这两个阶段必须在数据全部拷贝完后才能进行，是一个性能瓶颈。
+
+* **Write阶段**：将计算结果写入HDFS。
+
+#### 3.4 MapReduce的优化
+
+* 参数调优：
+
+  * 可设置环形缓冲区大小、溢写阈值大小、是否压缩、压缩器选择、ReduceTask同时启动的拷贝线程数、Reduce阶段的内存阈值、合并阈值等。
+  * 合理增加Combiner，减小IO
+
+  杜克大学Starfish项目：自动参数调优
+
+* 系统调优：
+
+  * 避免排序；
+  * Shuffle阶段内部优化：Netty代替Jetty（Hadoop2.X）、Reduce端批拷贝、Shuffle阶段独立出来以分离IO与CPU的资源重叠使用；
+  * C++改写；
+
+#### 3.5 MapReduce的一些应用
+
+##### 3.5.1 TopN
+
+数据保存入一个小顶堆（可用Reduce端放置一个TreeMap实现）
+
+##### 3.5.2 join
+
+MapJoin：驱动中加入缓存，重新setup阶段保存小表，性能更优
+
+ReduceJoin：连接键作为key，性能较差
+
+### 4. MapReduce中的数据输出
+
+
 
  
 
