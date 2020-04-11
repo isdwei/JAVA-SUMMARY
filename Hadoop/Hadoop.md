@@ -228,13 +228,13 @@ HDFS会验证数据校验和，针对每512字节创建一个校验和（默认�
 
 #### 2.5 HDFS中的数据压缩算法
 
-* Gzip 不支持Spill  压缩率较高，自带
+* Gzip 不支持Split  压缩率较高，速度较快 自带
 
-* Bzip2 支持Spill   压缩率很高，自带    压缩解压慢
+* Bzip2 支持Split   压缩率很高，自带    压缩解压慢
 
-* Lzo  支持Spill   压缩率合理，不自带   压缩解压快 最流行
+* Lzo  支持Split   压缩率合理，不自带   压缩解压快 最流行
 
-* Snappy 不支持Spill 压缩率比Gzip低，不自带   高速压缩  
+* Snappy 不支持Split 压缩率比Gzip低，不自带   高速压缩  
 
 #### 2.6 Hadoop 归档
 
@@ -305,7 +305,7 @@ public class FlowBean implements Writable{
 
 Java的序列化是一个重量级序列化框架（Serializable），一个对象被序列化后，会附带很多额外的信息（各种校验信息，Header，继承体系等），不便于在网络中高效传输，不便于扩展。所以，Hadoop自己开发了一套序列化机制（Writable）。
 
-### 2. MapReduce中的数据提交
+### 2. MapReduce中的数据输入与输出
 
 #### 2.1 文件切片
 
@@ -539,6 +539,20 @@ public class SequenceFileDriver {
 
 ```
 
+#### 2.5 MapReduce输出数据的方法（OutputFormat）
+
+##### 2.5.1 TextOutputFormat
+
+每条记录写为文本行
+
+##### 2.5.2 SequenceFileOutputFormat
+
+序列化格式输出，紧凑容易被压缩。
+
+2.5.3 自定义格式输出（继承OutputFormat）
+
+
+
 ### 3. MapReduceTask工作流程
 
 #### 3.1 概述
@@ -619,23 +633,49 @@ ReduceTask从各个MapTask上读取数据，排序后以组为单位交给reduce
 
   * Sort阶段与Reduce阶段也是并行的。在Sort阶段，ReduceTask为内存和磁盘中的文件建立了小顶堆，保存了指向根节点的迭代器。ReduceTask不断移动迭代器，以将相同key的数据顺次交给reduce()函数处理。移动迭代器的过程其实就是不断调整小顶堆的过程。
   * 这两个阶段必须在数据全部拷贝完后才能进行，是一个性能瓶颈。
+  * 这一阶段可以自定义GroupingComparator进行分组排序
 
 * **Write阶段**：将计算结果写入HDFS。
 
 #### 3.4 MapReduce的优化
 
+MapReduce优化方法主要从六个方面考虑：数据输入、Map阶段、Reduce阶段、IO传输、数据倾斜问题和常用的调优参数。
+
+* 数据输入：合并小文件，CombineTextInputFormat输入
+
+* Map：减少Spill次数（调整环形内存大小和触发spill的阈值），减少Merge次数（增大一次Merge的文件数），进行Combiner处理；
+
+* Reduce：合理设置Map，Reduce任务数，设置Map，Reduce共存，规避使用reduce，合理设置Reduce端Buffer(保留一定比例的内存直接给Reduce使用)；
+
+* IO：数据压缩（Snappy，LZO），使用SequenceFile二进制文件，spill次数过多，merge次数过多。
+
+* 数据倾斜：抽样范围分区，自定义分区，Combine，采用MapJoin(避免Reducejoin)。
+
 * 参数调优：
 
-  * 可设置环形缓冲区大小、溢写阈值大小、是否压缩、压缩器选择、ReduceTask同时启动的拷贝线程数、Reduce阶段的内存阈值、合并阈值等。
-  * 合理增加Combiner，减小IO
+  * 可设置Map和Reduce可用的内存上限、CPU核数、Container占用的CPU、内存资源、环形缓冲区大小、溢写阈值大小、是否压缩、压缩器选择、ReduceTask同时启动的拷贝线程数、Reduce阶段的内存阈值、合并阈值等。
 
-  杜克大学Starfish项目：自动参数调优
+  * 杜克大学Starfish项目：自动参数调优
 
 * 系统调优：
 
   * 避免排序；
   * Shuffle阶段内部优化：Netty代替Jetty（Hadoop2.X）、Reduce端批拷贝、Shuffle阶段独立出来以分离IO与CPU的资源重叠使用；
   * C++改写；
+
+**HDFS小文件优化方法**
+
+HDFS小文件弊端：HDFS上每个文件都要在NameNode上建立一个索引，这个索引的大小约为150byte，这样当小文件比较多的时候，就会产生很多的索引文件，一方面会大量占用NameNode的内存空间，另一方面就是索引文件过大使得索引速度变慢。
+
+HDFS小文件解决方案
+
+* 在数据采集的时候，就将小文件或小批数据合成大文件再上传HDFS。（归档）
+
+* 在业务处理之前，在HDFS上使用MR对小文件进行合并。（SequenceFile）
+
+* 在MapReduce处理时，可采用CombineTextInputFormat提高效率。
+
+* 开启JVM重用
 
 #### 3.5 MapReduce的一些应用
 
@@ -649,7 +689,7 @@ MapJoin：驱动中加入缓存，重新setup阶段保存小表，性能更优
 
 ReduceJoin：连接键作为key，性能较差
 
-### 4. MapReduce中的数据输出
+
 
 
 
@@ -730,3 +770,201 @@ HDFS小文件解决方案
 （3）在MapReduce处理时，可采用CombineTextInputFormat提高效率。
 
 （4）开启JVM重用
+
+## 三、Yarn
+
+#### 1. 下一代MapReduce框架的设计思想
+
+Hadoop1.0的弊端：
+
+* Hadoop MapReduce在可扩展性、资源利用率和多框架支持等方面存在不足。
+* Hadoop未能将资源调度与应用程序计算的功能分开，造成Hadoop难以支持多种框架。
+
+<img src="picture\h1.png" alt="1586501579751" style="zoom:33%;" />
+
+下一代MapReduce的设计思想：将JobTracker的两个主要功能：资源管理和作业控制拆分成两个独立的进程。其中资源管理进程（YARN）与具体应用程序无关，只负责资源的调度，而作业控制进程（ApplicationMaster）则是直接与应用程序相关的模块，每个作业控制进程只负责管理一个作业。
+
+<img src="E:\JAVA-SUMMARY\Hadoop\picture\h2.png" alt="1586502829601" style="zoom:33%;" />
+
+#### 2. Yarn的组成结构
+
+##### 2.1 ResourceManager
+
+RM是一个全局的资源管理器，由调度器（Scheduler）和应用程序管理器组成（Application Manager，ASM）
+
+* **调度器Scheduler**：根据容量、队列等限制条件将**资源**分配给各个正在运行的应用程序。调度器根据各个应用程序的资源需求进行资源分配，而资源分配用一个抽象的概念Container。Container是一个动态资源分配单位，将内存、CPU、磁盘、网络等资源封装在一起，从而限定每个任务可使用的资源量。
+* **应用程序管理器Applications Manager**：负责应用程序的提交、与调度器协商资源以起动AM、监控AM运行状态并在失败时重启它。
+
+##### 2.2 ApplicationMaster
+
+每一个应用程序均会包含一个AM，主要功能包括：
+
+* 与RM调度器协商以获取资源（用Container表示）；
+* 将得到的任务进一步分配给内部的任务；
+* 与NM通信以启动任务；
+* 监控所有任务的运行状态。
+
+YARN自带了两个AM的实现，分别用于演示AM编写方法的示例程序和用于MR的MRApplicationMaster。
+
+##### 2.3 NodeManager
+
+NM是每个节点上的资源和任务管理器，一方面它会定期向RM汇报本节点上资源的使用情况和各个Container的运行状态；另一方面它接受来自AM的Container启动/停止等各种请求。
+
+##### 2.4 Container
+
+Container是YARN中的资源抽象
+
+### 3. Yarn的工作流程
+
+<img src="picture\yarnwork.png" alt="1586507778521" style="zoom:33%;" />
+
+* 用户向YARN中提交应用程序，其中包括ApplicationMaster程序、启动ApplicationMaster的命令、用户程序等。
+* ResourceManager为该应用程序分配第一个Container，并与对应的NodeManager通信，要求它在这个Container中启动应用程序的ApplicationMaster。
+* ApplicationMaster首先向ResourceManager注册，这样用户可以直接通过ResourceManager查看应用程序的运行状态，然后它将为各个任务申请资源，并监控它的运行状态，直到运行结束。
+* ApplicationMaster 采用轮询的方式通过 RPC 协议向 ResourceManager申请和领取资源。
+* 一旦 ApplicationMaster 申请到资源后，便与对应的NodeManager通信，要求它启动任务。
+* NodeManager为任务设置好运行环境（ 包括环境变量、JAR 包、二进制程序等）后，将任务启动命令写到一个脚本中， 并通过运行该脚本启动任务。
+* 各个任务通过某个RPC 协议向ApplicationMaster 汇报自己的状态和进度， 以让 ApplicationMaster 随时掌握各个任务的运行状态， 从而可以在任务失败时重新启动任务。在应用程序运行过程中，用户可随时通过 RPC向ApplicationMaster查询应用程序的当前运行状态。
+* 应用程序运行完成后，ApplicationMaster向ResourceManager注销并关闭自己。  
+
+### 4. ResourceManager剖析
+
+ResourceManager通过两个RPC协议与NodeManager和各个ApplicationMaster交互。
+
+#### 4.1 ApplicationMaster管理
+
+ApplicationMaster管理功能主要有三个服务构成：ApplicationMasterLauncher、AMLivelinessMonitor、ApplicationMasterService，他们共同管理应用程序的ApplicationMaster的生存周期。
+
+* 首先用户向YARN ResourceManager提交应用程序，RM收到提交请求后，先向资源调度器申请以启动MpplicationMaster的资源，申请到资源后，再由ApplicationMasterLauncher对应的NodeManager通信，从而启动应用程序的ApplicationMaster。
+* ApplicatonMaster启动完成后，ApplicationMasterLauncher会通过事件的形式，将刚刚启动的ApplicationMaster注册到AMLivelinessMonitor，以启动心跳监控；
+* ApplicatonMaster启动后，先向ApplicationMasterService注册，并将自己所在host、端口号等信息汇报给它。
+* ApplicationMaster运行过程中，周期性地向ApplicationMasterService汇报心跳（心跳中包含所需资源的描述）。
+* ApplicationMasterService每次收到心跳信息后将通知AMLivelinessMonitor更新其最近汇报心跳的时间。
+* 应用程序完成后，AM向ApplicationMasterService发送请求，注销自己。
+* ApplicationMasterService收到注销请求后标记应用程序运行状态为完成，同时通知AMLivelinessMonitor移除对它的心跳监控。
+
+#### 4.3 NodeManager管理
+
+NodeManager管理部分主要有三个服务构成：NMLivelinessMonitor、NodesListManager、ResourceTrackerService，它们共同管理NM的生存周期。
+
+* NMLivelinessMonitor：周期性遍历集群中所有的NodeManager，只要有一个NM在一定时间内（10min）未汇报心跳，则认为其死亡，上面运行的所有Container都被认为失败。但RM不会重新执行这些Container，而是通过心跳机制告诉AM，由AM决定是否重新执行。
+* NodesListManager：管理exlude（黑名单）和include（白名单）节点列表。
+* ResourceTrackerService：负责处理来自各个NodeManager的请求，主要包括注册和心跳。
+
+#### 4.4 Application管理
+
+* ApplicationACLsManager：负责管理应用程序的访问权限
+
+* RMAppManager：负责应用程序的启动与关闭
+
+* ContainerAllocationExpirer：当一个AM收到RM新分配的Container后，必须在10min钟内在对应的NM上启动该Container，否则RM会强制收回该Container。
+
+### 5. Hadoop HA 基本框架
+
+在Master/Slave架构中，为了解决单点故障问题们通常采用热备方案。
+Hadoop2.0采用了基于Zookeeper的方案。
+
+#### 5.1 HDFS HA实现
+
+通过双NameNode消除单点故障。架构组成包括：
+
+* **MasterHADaemon**：与Master服务运行在一个进程中，可接受外部RPC命令；
+
+* **SharedStorage**：共享存储系统，Active Master将信息写入其中，而StandbyMaster读取该信息以保持和Active Master同步。
+
+* **ZKFailoverController**：基于Zookeeper实现的切换控制器，主要由ActiveStandbyElector和HealthMonitor组成。其中ActiveStandbyElector负责与zookeeper集群交互，通过尝试获取全局锁判断所管理的Master是进入Active还是Standby状态；HealthMonitor负责监控各个活动Master的状态。具体来说包含三个功能：
+
+  * **健康监测**，ZKFC使用一个健康检查命令定期地ping与之在相同主机的NameNode，只要该NameNode及时地回复健康状态，ZKFC认为该节点是健康的。如果该节点崩溃，冻结或进入不健康状态，健康监测器标识该节点为非健康的。  
+
+  * **ZooKeeper会话管理**，当本地NameNode是健康的，ZKFC保持一个在ZooKeeper中打开的会话。如果本地NameNode处于active状态，ZKFC也保持一个特殊的znode锁，该锁使用了ZooKeeper对短暂节点的支持，如果会话终止，锁节点将自动删除。  
+
+  * **基于ZooKeeper的选择**，如果本地NameNode是健康的，且ZKFC发现没有其它的节点当前持有znode锁，它将为自己获取该锁。如果成功，则它已经赢得了选择，并负责运行故障转移进程以使它的本地NameNode为Active。故障转移进程与前面描述的手动故障转移相似，首先如果必要保护之前的现役NameNode，然后本地NameNode转换为Active状态。  
+
+* **Zookeeper**：核心功能是维护一把全局锁控制集群只有一个ActiveMaster。
+
+<img src="picture\ha.png" alt="1586526878373" style="zoom: 25%;" />
+
+HDFS HA的实现中要考虑以下几个问题：
+
+* 两个NameNode的内存中各自保存一份元数据，Edits日志只有Active状态的NameNode节点可以做写操作，两个NameNode都可以读取Edits，共享的Edits放在一个共享存储中管理（qjournal和NFS两个主流实现，主要是qjournal）。
+
+* 实现了一个zkfailover，每个zkfailover负责监控自己所在的NN节点，利用zk进行状态标识，当需要进行状态切换时，zkfailover负责切换。为了保证切换过程透明，Hadoop应保证所有客户端和Slave可以自动重定向到新的ActiveMaster上。
+
+* 脑裂（brain-split），主备切换时，由于切换不彻底，导致客户端和Slave误以为出现两个ActiveMaster。通常采用隔离（Fencing）机制解决：
+
+  * 共享存储隔离：只有一个Master可以往共享存储中写数据；
+  * 客户端隔离：只有一个Master可以相应客户端请求；
+  * Slave隔离：只有一个Master可以向Slave发命令。
+
+  Hadoop提供了两种隔离实现：
+
+  * sshfence，通过SSH登录目标节点使用fuser将进程杀死（TCP端口号定位）
+
+  * shellfence，执行一个用户事先定义的Shell命令完成隔离
+
+#### 5.2 Yarn HA实现
+
+ResourceManager并不会保存已经分配给每个ApplicationMaster的资源信息和每个NodeManager的资源使用信息，这些均可通过心跳重构出来，因此，Yarnde HA实现是狠轻量级的。
+
+Yarn将共享存储系统抽象成RMStateStore，以保存恢复ResoureManager所需的必备信息，包括Application状态信息，Application对应的每个ApplicationAttempt信息和安全令牌信息。
+
+ResourceManager重启后，已经运行的程序无须重新提交，正在运行的Container将被杀死。
+
+### 6. 资源调度器剖析
+
+资源调度器是YARN中最核心的组件之一，他是RM中的一个插拔式服务组件，负责集群资源的管理和分配。
+
+#### 6.1 资源调度模型
+
+##### 6.1.1 双层资源调度模型
+
+YARN采用了双层资源调度模型：第一层中RM中的资源调度器将资源分配给ApplicationMaster，第二层中ApplicationMaster才将资源分配给他其中的各个任务。YARN的资源分配是异步的，也就是说资源调度器将资源分配给一个应用程序后，不是立即push给对应的AM，而是等AM的心跳来主动获取。
+
+具体资源分配过程如下：
+
+* **NodeManager**通过周期性心跳汇报节点信息；
+* **RM**为NM返回一个心跳应答，包括需要释放的Container列表等信息；
+* RM收到NM信息后会触发NODE_UPDATE事件;
+* **ResourceScheduler**收到NODE_UPDATE事件后，按一定的策略将该节点上的资源分配各应用程序，并将分配结果放到一个内存数据结构中；
+* 应用程序的**AM**向RM发送心跳以领取最新分配的**Container**；
+* RM收到心跳后，将为其分配的资源以心跳应答的方式返回；
+* AM收到Container，并将资源分配给各个任务。
+
+##### 6.1.2 资源保证机制
+
+分布式计算中，有两种资源调度器，当程序申请的资源暂时无法保证时
+
+* 增量资源分配：优先为应用程序预留一个节点上的资源直到空闲资源满足需求；
+* 一次性资源分配：暂时放弃当前资源直到出现一个节点剩余资源一次性满足需求。
+
+YARN采用增量资源分配机制，这会降低资源利用率，但不会出现饿死现象。
+
+##### 6.1.3 资源分配算法
+
+YARN采用了主资源公平调度算法（Dominant Resource Fairness，DRF），该算法扩展类最大最小公平算法，使其能够支持多维资源调度。
+
+DRF算法中，将所需份额最大的资源称为主资源，DRF算法总是最大化所有主资源中最小的。
+
+#### 6.2 资源抢占模型
+
+资源调度器中，每个队列可设置一个最小资源量和最大资源量，其中最小资源量是资源紧缺时每个队列需保证的资源量，而最大资源量是极端情况下队列也不能超过的资源使用量。但最小资源并不是硬资源保障，当队列不需要资源时，调度器会将这些资源暂借给别的队列使用。仅当负载较轻的队列需要资源时，调度器才将本属于该队列的资源分配给他。若一段时间后资源仍未归还，则会发生资源抢占。
+
+#### 6.3 Capacity Scheduler
+
+Capacity Scheduler是Yahoo开发的多用户调度器，他以队列为单位划分资源，每个队列设定一定比例的最低保障和资源上限，当一个队列资源有剩余时，可暂时将剩余资源共享给其他队列。
+
+YARN采用了三级资源分配方式，当一个节点上有空闲资源时，他会依次选择队列，应用程序和container请求使用该资源：
+
+<img src="picture\1.png" alt="1586622654134" style="zoom:33%;" />
+
+* **选择队列**：YARN基于优先级的深度优先遍历算法，当遇到子队列是叶子队列，则在其中选择一个Container请求并退出。
+* **选择应用程序**：选中一个子队列后，Capacity Scheduler按提交时间对叶子队列的应用程序排序，并遍历排序后的应用程序以找到一个或多个合适的Container请求；
+* **选择Container请求**：对于同一个Application，他的请求可能是多样化的，涉及不同的节点、资源和数量。Capacity Scheduler会优先满足优先级高的Container请求。对于同一优先级优先选择满足本地性的Container。
+
+#### 6.4 Fair Schedular
+
+Fair Schedular是Facebook开发的多用户调度器，他与Capacity Schedular区别在于它允许每个队列单独配置调度策略。当前有三种策略可选：FIFO，Fair和DRF。可以认为Fair Schedular具备了Capacity Schedular的所有功能。
+
+### 7. NodeManager剖析
+
+NodeManager是YARN上单个节点的代理，他管理集群中单个计算节点，功能包括：与RM保持通讯，管理Container生命周期，监控Container是资源使用，追踪节点健康状况，管理日志等。
