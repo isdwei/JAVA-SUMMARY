@@ -1,0 +1,930 @@
+h1,
+h2,
+h3,
+h4 {
+	margin: 0;
+	padding: 0;
+    background: none repeat scroll 0 0 #20375f;   /* 新增：为标题加上带底纹边框 */
+    color: white;                                 /* 新增 */
+    text-indent: 10px;                            /* 新增 */
+    border-radius: 6px;                           /* 新增 */
+}
+
+ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+a {
+	text-decoration: none     /* 将none改为underline，以便取消"超链接无下划线" */
+}
+
+a:active,
+a:link,
+a:visited {
+	color: #0681ba
+}
+
+a:hover {
+	color: #f60
+}
+
+a img {
+	border-width: 0
+}
+
+table,
+tbody,
+td,
+th,
+thead,
+tr {
+	border-collapse: collapse;
+	border: 1px solid silver
+}
+
+table {
+	width: 100%
+}
+
+body {
+	position: relative;
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	line-height: 1.5;
+	background-color: #f4f6f3  /* 背景色，默认#FFF */
+}
+
+#home,
+#header,
+#main,
+#footer {
+	position: relative;
+	display: block;
+	margin: 32px 0;
+	box-sizing: border-box
+}
+
+#home {
+	margin: 8px 4px     /* 默认边距：48 64 */
+}
+
+#main {
+	font-size: 0
+}
+
+#mainContent {
+	position: relative;
+	display: inline-block;
+	box-sizing: border-box;
+	width: 75%;
+	vertical-align: top;
+	font-size: 14px;
+	padding-right: 16px    /* 内容距离侧边栏距离，默认32px */
+}
+
+#sideBar {
+	position: relative;
+	display: inline-block;
+	box-sizing: border-box;
+	width: 25%;
+	vertical-align: top;
+	font-size: 14px
+}
+
+#footer {
+	border-top: 1px solid #0681ba;
+	padding-top: 10px;
+	text-align: center
+}
+
+#header {
+	border-bottom: 1px solid #0681ba;
+	text-align: right
+}
+
+#blogTitle1 {            /*新增样式(请删除该段落)： 将blogTitle改为了blogTitle1 */
+    background-color: aliceblue;    /* 为主标题和副标题加上背景色  */
+    padding: 0em 0em 0em 13px;
+    text-align: left;            /* 标题左对齐  */
+}
+
+#blogTitle1 .title {        /* 将blogTitle改为了blogTitle1 */
+	font-size: 32px
+}
+
+#blogTitle1 .subtitle {        /* 将blogTitle改为了blogTitle1 */
+	color: #999;
+	font-size: 12px;
+	margin: 6px 0
+}
+
+#navigator {
+	position: relative;
+	text-align: left;     /* 默认right */;
+	background-color: aqua;   /* 新增行：导航栏加背景色 */
+}
+
+#navigator #navList1 {        /* 将navList改为了navList1 */
+	position: relative;
+	display: inline-block;
+    text-align: left;        /* 导航栏左对齐 */
+}
+
+#navigator #navList1 li {        /* 将navList改为了navList1 */
+	display: inline-block;
+	background-color: aqua; /* 新增行：为导航列表块加背景色*/
+    font-weight: bold;           /* 新增行：为导航列表字体加粗 */
+}
+
+#navigator .menu {
+	display: block;
+	/* width: 8em; */         /* 默认5em，注释使其可随内容多少改变块大小 */
+	font-size: 14px;     /* 默认16px */
+	padding: 6px 16px;      /* 默认6px 0。修改16px使其适应块的显示大小 */
+	text-align: center
+}
+
+#navigator .menu:hover {
+	color: #fff;
+	background-color: #0681ba
+}
+
+#navigator .blogStats {
+	position: absolute;
+	display: inline-block;
+	left: 0;
+	bottom: 6px;
+	color: #999;
+	font-size: 12px;
+	font-style: italic
+}
+
+.forFlow {
+	position: relative;
+	padding: 14px;     /* 博文内容内边距，默认24px */
+	box-shadow: 0 0 2px #ccc
+}
+
+#topics {
+	position: relative
+}
+
+.postBody {
+	margin-top: 0
+}
+
+#blog_post_info_block {
+	position: relative;
+	margin-top: 24px
+}
+
+#BlogPostCategory {
+	position: relative
+}
+
+#EntryTag {
+	position: relative;
+	margin-top: 12px
+}
+
+#post_next_prev {
+	margin-top: 12px
+}
+
+#blog-comments-placeholder {
+	position: relative;
+	margin-top: 24px
+}
+
+#comments_pager_bottom,
+#comments_pager_top {
+	position: relative;
+	text-align: right;
+	border-bottom: 1px solid #0681ba
+}
+
+.pager {
+	display: inline-block;
+	background-color: #0681ba;
+	font-size: 16px;
+	margin-top: 12px;
+	padding: 6px;
+	margin-bottom: -1px
+}
+
+.pager .current {
+	padding: 6px;
+	margin-right: 6px
+}
+
+.pager a {
+	color: #FFF;
+	padding: 6px;
+	margin-right: 6px
+}
+
+.pager a:hover {
+	background-color: #07628d
+}
+
+.feedback_area_title {
+	color: #fff;
+	font-size: 20px;
+	font-weight: 700;
+	padding: 6px 12px;
+	display: inline-block;
+	background-color: #0681ba
+}
+
+.feedbackItem {
+	margin-top: 12px;
+	position: relative;
+	border-left: 1px solid #0681ba;
+	border-bottom: 1px solid #0681ba;
+	padding-bottom: 7px
+}
+
+.layer {
+	padding: 6px;
+	background-color: #0681ba;
+	color: #FFF;
+	display: inline-block;
+	font-size: 16px;
+	margin-right: 10px
+}
+
+.layer:active,
+.layer:hover,
+.layer:link,
+.layer:visited {
+	color: #FFF
+}
+
+.blog_comment_body {
+	margin: 10px 20px
+}
+
+.feedbackManage {
+	position: absolute;
+	right: 0;
+	bottom: 7px
+}
+
+.louzhu {
+	color: #f60
+}
+
+.louzhu+span {
+	color: #f60
+}
+
+.comment_date {
+	margin-right: 10px
+}
+
+.comment_actions a,
+.comment_bury,
+.comment_digg {
+	padding: 8px 10px
+}
+
+.comment_actions a:hover,
+.comment_bury:hover,
+.comment_digg:hover {
+	background-color: #0681ba;
+	color: #fff
+}
+
+#comment_form {
+	margin-top: 24px
+}
+
+#comment_nav {
+	border-bottom: 1px solid #0681ba;
+	font-size: 16px;
+	margin-top: 12px;
+	text-align: right
+}
+
+#comment_nav a {
+	background-color: #0681ba;
+	color: #fff;
+	display: inline-block;
+	margin-left: 6px;
+	padding: 6px
+}
+
+#comment_nav a:hover {
+	background-color: #07628d
+}
+
+.entrylistPosttitle,
+.postTitl2,
+.postTitle {
+	border-bottom: 1px dashed #0681ba;
+	font-size: 20px;
+	/* padding-bottom: 4px */     /* 注释掉本行，让个人博客首页各标题看起来更紧凑 */
+}
+
+.entrylistItemPostDesc,
+.postDesc,
+.postDesc2 {
+	color: #999;
+	font-size: 12px;
+	margin-top: 12px;
+	text-align: right
+}
+
+.entrylistDescription {
+	color: #999;
+	font-style: italic;
+	text-indent: 2em;
+	margin: 10px 0
+}
+
+.PostList,
+.day,
+.entrylistItem {
+	margin: 0px 0  /* 默认20px 0，个人博客首页不按天划分，否则每天的博客都会加上一点间距，导致首页博客条目间距不均匀 */
+}
+
+.dayTitle {
+	display: none
+}
+
+.entrylistPostSummary,
+.postCon {
+    display: none;      /* 新增：移除个人首页里每篇博客摘要 */
+    margin: 10px 0;
+	font-size: 14px
+
+}
+
+.topicListFooter {
+	margin: 20px;
+	text-align: center
+}
+
+.post-categoty-tags {
+	text-align: right;
+	margin-top: 10px;
+	font-style: italic;
+	color: #999;
+	font-size: 12px
+}
+
+.post-categoty-tags a {
+	font-size: 14px;
+	font-style: normal
+}
+
+#sideBarMain {
+	position: relative
+}
+
+.sidebar-block {
+	margin: 24px 0
+}
+
+.catListTitle {
+	color: #999;
+	margin-bottom: 8px;
+	font-weight: normal
+}
+
+h3.catListTitle {      /* 新增 */
+    background: #f4f6f3;   /* 背景色，默认white */
+    color: black;
+    text-indent: 0px;
+}
+
+.catListTitle span {
+	margin-left: 4px
+}
+
+
+
+#sidebar_search_box .div_my_zzk {
+	margin-bottom: 8px
+}
+
+#sidebar_search_box .input_my_zzk {
+	font-size: 16px
+}
+
+#sidebar_search_box .btn_my_zzk {
+	margin-left: 8px
+}
+
+.recent_comment_title {
+	margin-top: 6px
+}
+
+.recent_comment_body {
+	font-size: 12px
+}
+
+.recent_comment_author {
+	font-size: 12px;
+	text-align: right;
+	color: #999
+}
+
+#cnblogs_post_body {
+	position: relative
+}
+
+#cnblogs_post_body h1 {
+	font-size: 20px;
+	font-weight: 700;
+	margin-bottom: 12px;
+	margin-top: 12px;
+	padding: 6px 6px 6px 0
+}
+
+#cnblogs_post_body h2 {
+	font-size: 18px;
+	font-weight: 700;
+	margin-bottom: 12px;
+	margin-top: 12px;
+	padding: 4px 4px 4px 0
+}
+
+#cnblogs_post_body h3 {
+	font-size: 16px;
+	font-weight: 700;
+	margin-bottom: 12px;
+	margin-top: 12px;
+	padding: 4px 4px 4px 0
+}
+
+#cnblogs_post_body img {
+	display: block;
+	max-width: 100%;
+	width: auto;
+	margin: 0 auto;  /* 默认10px 0，为了将图片居中，将display:inline-block改为block，且此处外边距改为0 auto */
+	padding: 0;
+	border-width: 0;
+	box-shadow: 0 0 3px #ddd
+}
+
+#cnblogs_post_body p {
+	font-size: 14px;
+	margin: 10px 0 0 0;
+	text-indent: 0em;
+	width: 100%
+    letter-spacing: 1px;
+    line-height: 2;
+}
+
+#cnblogs_post_body li img,
+#cnblogs_post_body p img {
+	margin: 0;
+	display: inline-block;  /* 行内小图片不单独成行。默认值为block */
+	font-size: 0
+}
+
+blockquote {          /* 新增样式(请删除该段)：为引用块加上背景色 */
+    background: #282a36;     /* 颜色：cyan */
+}
+
+#cnblogs_post_body blockquote {
+	/*border-left: 6px solid #eee;    注释了该行 */
+	color: #2affff;                   /* 默认#333黑色字体 */
+	font-size: 12px;
+	/* font-style: normal;         引用块中斜体改正常：italic改为normal */
+	/*margin: 10px 0 10px 2em;     注释了该行 */
+	padding: 6px 12px;
+	word-break: break-all
+}
+
+#cnblogs_post_body blockquote p {
+	margin: 2px 0;
+	text-indent: 0;
+	padding: 0
+}
+
+#cnblogs_post_body ul,
+#cnblogs_post_body ol {
+	margin: 8px 0;
+	margin-left: 20px      /* 新增:列表带缩进 */
+}
+
+#cnblogs_post_body ol {      /* 新增样式:带数字序列不缩进  */
+	padding-left: 0px      
+}
+
+
+#cnblogs_post_body strong {
+	font-weight: bold;
+	font-size: 15px
+}
+
+#blog_post_info {
+	position: relative
+}
+
+#green_channel {
+	position: relative;
+	display: inline-block;
+	padding: 8px;
+	margin-top: 12px;
+	border: 1px dashed #999;
+	width: unset
+}
+
+#green_channel_contact,
+#green_channel_digg,
+#green_channel_favorite,
+#green_channel_follow {
+	display: inline-block;
+	vertical-align: middle;
+	color: #fff;
+	padding: 6px 0;
+	width: 5em;
+	text-align: center;
+	margin-right: 12px
+}
+
+#green_channel_digg {
+	background-color: #2daebf
+}
+
+#green_channel_follow {
+	background-color: #e33100
+}
+
+#green_channel_favorite {
+	background-color: #ffb515
+}
+
+#green_channel_contact {
+	background-color: #555
+}
+
+#green_channel_wechat,
+#green_channel_weibo {
+	display: inline-block;
+	vertical-align: middle
+}
+
+#green_channel_wechat img,
+#green_channel_weibo img {
+	width: 24px;
+	height: 24px
+}
+
+#div_digg {
+	position: fixed;
+	display: block;
+	bottom: 73px;     /*默认32*/
+	float: unset;
+	width: unset;
+	margin: 0;
+	padding: 12px;
+	background-color: #fff;
+	box-shadow: 0 0 2px #ccc;
+	text-align: center;
+	z-index: 1000;
+    right: 140px;         /*新增：赞 右边距*/
+    border: 2px solid #339900;         /*新增*/
+}
+
+.follow {      /*新增样式：在 赞 下面添加"点我加关注"*/
+	position: fixed;
+	display: block;
+	bottom: 9.333px;
+	float: unset;
+	width: 139.333px;
+	margin: 0;
+	padding: 0;
+	background-color: #fff;
+	box-shadow: 0 0 2px #ccc;
+	text-align: center;
+	z-index: 1000;
+    right: 140px;
+    border: 2px solid #339900;
+}
+
+/* 在页脚html栏中加上以下内容
+<div id="sideBar">
+        <div class="follow">
+            <a onclick="follow();" href="javascript:void(0);" style="font-weight: bold; padding-left:5px;">😀点这里关注我😀</a> 
+            <a onclick="lnh.toc.toggle();" href="javascript:void(0);" style="font-weight: bold; padding-left:5px;"><font color="#0000ff">😀扩大/缩小页面😀</font></a>  
+    <div>
+</div>
+*/
+
+.buryit,
+.diggit {
+	position: relative;
+	float: unset;
+	margin: 0 31.6px;    /* 默认为0，不显示buryit后，修改边框大小 */
+	padding: 0;
+	display: inline-block;
+	background: unset;
+	color: #f60;
+	width: 48px;
+	height: 36px;
+	vertical-align: text-bottom;
+	font-size: 32px;
+	overflow: visible;
+}
+
+.buryit::before,
+.diggit::before {
+	position: absolute;
+	font-family: 'FontAwesome';
+	left: 0;
+	top: 0;
+	width: 36px;
+	height: 36px;
+	line-height: 36px
+}
+
+.buryit .diggnum,
+.buryit .burynum,
+.diggit .diggnum,
+.diggit .burynum {
+	position: absolute;
+	bottom: 0;
+	left: 36px;
+	font-size: 16px;
+	font-style: italic
+}
+
+.buryit .diggnum,
+.diggit .diggnum {
+	color: #ea4335
+}
+
+.buryit .burynum,
+.diggit .burynum {
+	color: #999
+}
+
+.buryit:hover,
+.diggit:hover {
+	font-size: 36px;
+	color: #f66
+}
+
+.diggit::before {
+	content: "\f164"
+}
+
+.buryit {
+	margin-left: 12px;
+	display: none;    /* 不显示反对 */
+}
+
+.buryit::before {
+	content: "\f165"
+}
+
+.diggword {
+	margin: 0;
+	padding: 0
+}
+
+#author_profile {
+	position: relative;
+	display: block;
+	float: unset;
+	width: unset
+}
+
+#author_profile_info {
+	position: relative;
+	display: block
+}
+
+#author_profile_detail {
+	position: relative;
+	display: inline-block;
+	margin-left: 12px
+}
+
+#commentform_title {
+	color: #fff;
+	font-size: 20px;
+	font-weight: 700;
+	padding: 6px 12px;
+	display: inline-block;
+	background: unset;
+	background-color: #0681ba
+}
+
+.comment_vote {
+	text-align: left
+}
+
+.commentbox_title {
+	position: relative;
+	float: unset;
+	width: unset
+}
+
+.commentbox_title_left {
+	position: relative;
+	float: unset;
+	display: inline-block
+}
+
+.commentbox_title_right {
+	position: relative;
+	float: unset;
+	display: inline-block
+}
+
+.commentbox_title_right .comment_icon {
+	display: inline-block;
+	cursor: pointer
+}
+
+#tbCommentBody {
+	width: 100%;
+	height: 160px;
+	box-sizing: border-box
+}
+
+#btn_comment_submit {
+	background-color: #0681ba;
+	color: #fff;
+	cursor: pointer;
+	font-size: 18px;
+	padding: 8px;
+	width: unset;
+	height: unset
+}
+
+.cnblogs_code {
+	background-color: #F9F9F9;
+	border-width: 1px;          /* 默认0 */
+    border-radius: 8px          /* 默认没有该行 */
+}
+
+div.cnblogs_code {
+	/* border-left: 4px solid #73dc77;  */     /* 取消代码左边框的竖线 */
+	margin: 10px 0;
+	padding: 8px
+}
+
+span.cnblogs_code {
+	font-size: 12px !important;
+	vertical-align: middle;
+	background-color: #efefef;
+	padding: 2px 4px;
+	margin: 0
+}
+
+.cnblogs_code_toolbar {
+	display: none
+}
+.cnblogs_code_hide {
+	display: none
+}
+
+#footer {
+	border-top: 1px solid #0681ba;
+	padding-top: 10px;
+	text-align: center
+}
+
+#MySignature {
+	padding: 10px;
+	background: #F9F9F9 url(https://images.cnblogs.com/cnblogs_com/grenet/226272/o_o_o_info.png) no-repeat scroll 15px 50%;
+	padding-left: 80px
+}
+
+#MySignature div {
+	line-height: 25px
+}
+
+.fixed-bar-warp {
+	position: fixed;
+	display: none;   /* 右边目录、评论等功能框，默认：block */
+	z-index: 9999;
+	width: 40px;
+	bottom: 24px;
+	right: 12px;
+	color: #fff;
+    border: 3px solid red;     /* 为右下角加边框 */
+}
+
+.fixed-bar-warp .fixed-bar {
+	position: relative;
+	display: block
+}
+
+.fixed-bar-warp .fixed-bar .item {
+	display: block;
+	text-align: center;
+	cursor: pointer
+}
+
+.fixed-bar-warp .fixed-bar .item i {
+	display: block;
+	height: 40px;
+	line-height: 40px;
+	font-size: 27px
+}
+
+.fixed-bar-warp .fixed-bar .item i:hover {
+	font-size: 32px
+}
+
+.lnh_toc_warp {
+	position: fixed;
+	display: inline-block;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	z-index: 9999;
+	background-color: #f4f6f3;    /* 背景色，默认#fff  */
+	box-shadow: 0 0 2px #ccc;
+	line-height: 1.6;
+	overflow-y: auto;
+	min-width: 180px;        /* 左侧目录导航栏：默认240px */ 
+	max-width: 180px;        /* 左侧目录导航栏：默认320px */
+	overflow-x: auto
+}
+
+.lnh_toc_warp .title {
+	margin-top: 12px;       /* 左侧目录导航栏标题：默认32px */
+	padding-left: 12px;
+	font-size: 16px
+}
+
+.lnh_toc_warp .toc {
+	position: relative;
+	margin-top: 12px;
+	display: block
+}
+
+.lnh_toc_warp .toc .item {
+	display: block;
+	font-size: 9px;
+	padding-right: 12px;
+	white-space: nowrap
+}
+
+.lnh_toc_warp .toc .item-h1 {
+	padding-left: 12px;
+	line-height: 2
+}
+
+.lnh_toc_warp .toc .item-h2 {
+	padding-left: 24px;
+	line-height: 1.8
+}
+
+.lnh_toc_warp .toc .item-h3 {
+	padding-left: 36px
+}
+
+.lnh_toc_warp .toc .item.current {
+	background-color: #0681ba !important;
+	color: #fff !important
+}
+
+#lnh-profile {
+	margin: 12px 0
+}
+
+#lnh-profile a {
+	line-height: 1.5
+}
+
+#lnh-profile i {
+	font-size: 14px;
+	margin-right: 8px
+}
+
+
+
+.cnblogs-markdown code,
+.cnblogs-post-body code {
+	font-family: "DejaVu Sans Mono","Consolas","Courier New",sans-serif!important;
+	border: 0.4px solid #ccc!important;
+}
+
+:not(pre) > code {
+	color: #2530c7;
+	font-weight: bold;
+}
+
+.cnblogs-markdown .hljs,
+.cnblogs-post-body .hljs {
+	overflow-x: unset;
+}
+
+
+
+
+
+
+

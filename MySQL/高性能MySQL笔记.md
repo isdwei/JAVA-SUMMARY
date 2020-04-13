@@ -95,7 +95,7 @@ MySQL的数据文件：
 
 ##### 对于幻读与不可重复读在原理上的解释
 
-Mysql提供了多版本读取能力，也就是说表中一份存储的数据行会有多个版本。这个版本对应的version就是transaction id。当行数据被某个transaction变更时，这个行会有个隐含的hidden column中记录了这个更新者的transaction id。旧的数据在被覆盖的同时，会存储到一个undolog的文件中，这个文件中就是保存着每一行的版本数据链表,沿着这个链表走我们可以走过这一行数据之前的版本变更。
+Mysql提供了多版本读取能力，也就是说**表中一份存储的数据行会有多个版本**。**这个版本对应的version就是transaction id**。当行数据被某个transaction变更时，这个行会有个**隐含的hidden column中记录了这个更新者的transaction id**。**旧的数据在被覆盖的同时，会存储到一个undolog的文件中，这个文件中就是保存着每一行的版本数据链表, 沿着这个链表走我们可以走过这一行数据之前的版本变更**。
 
 **可重复读:**
 
@@ -107,7 +107,7 @@ Mysql提供了多版本读取能力，也就是说表中一份存储的数据行
 
 **幻读:**
 
-幻读的字面意思很简单，就是在事务内两次查询语句(注意是select ...for...update语句,不是前面的普通查询语句\<consistent read>)，读取到了不同的数据。
+幻读的字面意思很简单，就是在事务内两次查询语句(注意是**select ...for...update**语句,不是前面的普通查询语句\<consistent read>)，读取到了不同的数据。
 
 比如在一个事务中，我们要查询满足condition: a>5 and a<10的记录，目前只有一条记录a=7，此时另一个事务向这个condition中插入了一条a=8的数据，那么在有版本号的情况下，我们用普通的查询是读不到这条数据的，但如果我们想要插入一条a=8的数据，则会报错，这就是幻读。
 
@@ -450,23 +450,23 @@ MVCC 是一种并发控制的方法，一般在数据库管理系统中，实现
 
 - MVCC每次更新操作都会复制一条新的记录，新纪录的创建时间为当前事务id
 - 优势为读不加锁，读写不冲突
-- InnoDb存储引擎中，每行数据包含了一些隐藏字段 DATA_TRX_ID，DATA_ROLL_PTR，DB_ROW_ID，DELETE BIT
-- DATA_TRX_ID 字段记录了数据的创建和删除时间，这个时间指的是对数据进行操作的事务的id
-- DATA_ROLL_PTR 指向当前数据的undo log记录，回滚数据就是通过这个指针
-- DELETE BIT位用于标识该记录是否被删除，这里的不是真正的删除数据，而是标志出来的删除。真正意义的删除是在mysql进行数据的GC，清理历史版本数据的时候。
+- **InnoDb存储引擎中，每行数据包含了一些隐藏字段 DATA_TRX_ID，DATA_ROLL_PTR，DB_ROW_ID，DELETE BIT**
+- **DATA_TRX_ID 字段记录了数据的创建和删除时间，这个时间指的是对数据进行操作的事务的id**
+- **DATA_ROLL_PTR 指向当前数据的undo log记录，回滚数据就是通过这个指针**
+- **DELETE BIT位用于标识该记录是否被删除，这里的不是真正的删除数据，而是标志出来的删除。真正意义的删除是在mysql进行数据的GC，清理历史版本数据的时候。**
 
 具体的DML：
 
-- INSERT：创建一条新数据，DB_TRX_ID中的创建时间为当前事务id，DB_ROLL_PT为NULL
-- DELETE：将当前行的DB_TRX_ID中的删除时间设置为当前事务id，DELETE BIT设置为1
-- UPDATE：复制了一行，新行的DB_TRX_ID中的创建时间为当前事务id，删除时间为空，DB_ROLL_PT指向了上一个版本的记录，事务提交后DB_ROLL_PT置为NULL
+- **INSERT：创建一条新数据，DB_TRX_ID中的创建时间为当前事务id，DB_ROLL_PT为NULL**
+- **DELETE：将当前行的DB_TRX_ID中的删除时间设置为当前事务id，DELETE BIT设置为1**
+- **UPDATE：复制了一行，新行的DB_TRX_ID中的创建时间为当前事务id，删除时间为空，DB_ROLL_PT指向了上一个版本的记录，事务提交后DB_ROLL_PT置为NULL**
 
-为了提高并发度，InnoDb提供了这个「非锁定读」，即不需要等待访问行上的锁释放，又解决了幻读。
+为了提高并发度，InnoDb提供了这个「非锁定读」，即**不需要等待访问行上的锁释放，又解决了幻读。**
 
 #### 6.1MVCC与隔离级别 
 
-- Read Uncommitted每次都读取记录的最新版本，会出现脏读，未实现MVCC
-- Serializable对所有读操作都加锁，读写发生冲突，不会使用MVCC
+- Read Uncommitted 每次都读取记录的最新版本，会出现脏读，未实现MVCC
+- Serializable 对所有读操作都加锁，读写发生冲突，不会使用MVCC
 - SELECT 
   - (RR级别)InnoDB检查每行数据，确保它们符合两个标准：
   - 只查找创建时间早于当前事务id的记录，这确保当前事务读取的行都是事务之前已经存在的，或者是由当前事务创建或修改的行
@@ -491,7 +491,7 @@ MVCC 是一种并发控制的方法，一般在数据库管理系统中，实现
 
 隔离级别越高并发度越差，性能越差，虽然MySQL默认的是RR，但是如果业务不需要严格的没有幻读现象，是可以降低为RC的或修改配置innodb_locks_unsafe_for_binlog为1 来避免Gap Lock的。 注意有的时候MySQL会自动对Next-Key Lock进行优化，退化为只加Record Lock，不加Gap Lock，如相关条件字段为主键时直接加Record Lock。
 
-### 7.面试题整理
+### 8. 面试题整理
 
 #### 查找每个部门工资最高的员工
 
