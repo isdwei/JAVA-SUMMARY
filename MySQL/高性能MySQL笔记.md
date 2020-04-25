@@ -493,7 +493,7 @@ MVCC 是一种并发控制的方法，一般在数据库管理系统中，实现
 
 ### 8. 面试题整理
 
-#### 查找每个部门工资最高的员工
+#### 8.1 查找每个部门工资最高的员工
 
 > Employee 表包含所有员工信息，每个员工有其对应的 Id, salary 和 department Id。
 >
@@ -566,8 +566,13 @@ in
 select DepartmentId ,max(Salary) as Salary  from Employee group by DepartmentId
  
 在两表left join 根据得出的条件筛选满足DepartmentId 与 Salary  最大值的员工。
+```
 
-mysql实现分组查询每个班级的前三名
+#### 8.2 mysql实现分组查询每个班级的前三名
+
+**先上答案**
+
+```sql
 select a.class,a.score from student a 
 where 
 (select 
@@ -581,6 +586,48 @@ a.class, a.score
 desc;
 ```
 
+**解析：**
+
+对于上面的sql语句，将其拆分为两部分：
+
+主查询：
+```sql
+select a.class,a.score from student a 
+where 
+  condition
+order by a.class, a.score desc;
+```
+主查询很好理解，对于a中的每一行，只要它满足condition条件，那就把它作为结果，排序输出。
+
+那么什么样的一样可以满足condition条件呢？
+
+子查询 condition：
+
+```sql
+(select count(*)  from  student  where a.class=class and a.score<score) <3
+```
+
+可以看到，在子查询中，对于a中的每一行，记为传入行，都与student表中的每一行（记为内部行）进行一次比较，有两个条件：
+
+* 传入行和传出行类别相同；
+* 传入行的分数小于内部行的分数。
+
+当这两个条件满足，就说明这个表中这一条内部行的分数比传入行大。
+
+子查询的输出为count(*)，也就是要统计满足上述两个条件的行数的条目数。有N条满足，就说明这个表中有N条数据大于该传入行，也就是传入行的分数在这一类中排第N+1。
+
+那么再加一个限定条件<3，也就是取前三名。
+
+这样结果就显然易见了。
+
+```sql
+select * from student in where
+(select count(1) from student where in.id=student.id and in.id<student.id)<3
+order by in.class, in.score desc;
+```
+
+
+
 ####   分布式数据库如何保证数据可靠性  
 
 在传统数据库中，有几种常用的手段来保证数据可靠性：
@@ -589,3 +636,4 @@ desc;
 3）备份/恢复
 4）存储层数据校验 
 5） 分布式一致性协议 
+
