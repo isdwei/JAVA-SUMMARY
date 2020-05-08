@@ -2,9 +2,219 @@
 
 ——尚硅谷笔记整理
 
+## SparkCore基础
 
+### 任务提交
+
+```shell
+spark-submit \
+  --master local[*]  \
+  --driver-cores 2   \
+  --driver-memory 8g \
+  --executor-cores 4 \ #每个executor使用的内核数，默认为1
+  --num-executors 10 \ #启动executors的数量，默认为2
+  --executor-memory 8g \
+  --class PackageName.ClassName XXXX.jar \
+  --name "Spark Job Name" \
+  InputPath      \
+  OutputPath
+```
+
+* $executor\_cores\times num\_executors$
+  表示的是能够并行执行Task的数目。不宜太小或太大！一般不超过总队列 cores 的 25%，比如队列总 cores 400，最大不要超过100，最小不建议低于 40，除非日志量很小。
+
+* $executor\_cores$
+  不宜为1！否则 work 进程中线程数过少，一般 2~4 为宜。
+
+* $executor\_memory$
+  一般 6~10g 为宜，最大不超过20G，否则会导致GC代价过高，或资源浪费严重。
+
+* $driver\_memory$
+  driver 不做任何计算和存储，只是下发任务与yarn资源管理器和task交互，除非你是 spark-shell，否则一般 1-2g
+
+增加每个executor的内存量，增加了内存量以后，对性能的提升，有三点：
+
+* 如果需要对RDD进行cache，那么更多的内存，就可以**缓存更多的数据**，将更少的数据写入磁盘，
+  甚至不写入磁盘，**减少了磁盘IO**。
+* 对于shuffle操作，**reduce端，会需要内存来存放拉取的数据并进行聚合**。如果内存不够，也会写入磁盘。如果给executor分配更多内存以后，就有更少的数据，需要写入磁盘，甚至不需要写入磁盘。减少了磁盘IO，提升了性能。
+* 对于task的执行，可能会创建很多对象。如果内存比较小，可能会频繁导致JVM堆内存满了，然后**频繁GC，垃圾回收，minor GC和full GC（速度很慢）**。内存加大以后，带来更少的GC，垃圾回收，避免了速度变慢，性能提升。
+
+#### 常见注意事项
+
+* 预处理数据，丢掉一些不必要的数据
+* 增加Task的数量
+* 过滤掉一些容易导致发生倾斜的key
+* 避免创建重复的RDD
+* 尽可能复用一个RDD
+* 对多次使用的RDD进行持久化
+* 尽量避免使用shuffle算子
+* 在要使用groupByKey算子的时候，尽量用reduceByKey或者aggregateByKey算子替代。因为调用groupByKey时候，按照相同的key进行分组，形成RDD[key,Iterable[value]]的形式，此时所有的键值对都将被重新洗牌,移动,对网络数据传输造成理论上的最大影响。而reduceByKey用于对每个key对应的多个value进行merge操作，最重要的是它能够在本地先进行merge操作，并且merge操作可以通过函数自定义。 
+* 使用高性能的算子
+
+### RDD、Job、Stage & Task
+
+#### RDD
+
+Resilient Distributed DataSet，弹性分布式数据集 ，有三个基本特性：
+
+##### 分区
+
+RDD 只是抽象意义的数据集合，分区内部并不会存储具体的数据，只会存储它在该 RDD 中的 index，通过该 RDD 的 ID 和分区的 index 可以唯一确定对应数据块的编号，然后通过底层存储层的接口提取到数据进行处理。在集群中，各个节点上的数据块会尽可能的存储在内存中，只有当内存没有空间时才会放入硬盘存储，这样可以最大化的减少硬盘 IO 的开销。
+
+一个RDD的分区可以在创建时指定，也可以在计算时更改，默认为程序分到CPU资源的核数。
+
+```scala
+rdd.partitions.size //返回rdd的分区数
+```
+
+Spark调度任务时，会优先将计算任务分配到数据所在的机器上。Spark默认实现了哈希分区器和区域分区器。
+
+##### 不可变
+
+每个 RDD 都是只读的，它所包含的分区信息是不可变的。
+
+我们在 RDD 的计算过程中，不需要立刻去存储计算出的数据本身，我们只要记录每个 RDD 是经过哪些转化操作得来的，即**依赖关系**，这样一方面可以提高计算效率，一方面是错误恢复会更加容易。 这即是“弹性”。
+RDD 在 Lineage 依赖方面分为两种 Narrow Dependencies 与 Wide Dependencies 用来解决**数据容错时的高效性**以及**划分任务**时候起到重要作用。
+
+##### 并行操作
+
+因为 RDD 的分区特性，所以其天然支持并行处理的特性。即不同节点上的数据可以分别被处理，然后生成一个新的 RDD。
+
+#### Job
+
+根据行动算子划分 
+
+#### Stage
+
+根据 RDD 之间的依赖关系的不同将 Job 划分成不同的 Stage，遇到一个宽依赖则划分一个 Stage。
+
+#### Task
+
+Stage 是一个 TaskSet，将 Stage 根据分区数划分成一个个的 Task  
 
 Spark内核泛指Spark的核心运行机制，包括Spark核心组件的运行机制、Spark任务调度机制、Spark内存管理机制、Spark核心功能的运行原理等，熟练掌握Spark内核原理，能够帮助我们更好地完成Spark代码设计，并能够帮助我们准确锁定项目运行过程中出现的问题的症结所在。
+
+### RDD常见操作
+
+#### 创建
+
+##### 从集合创建
+
+```scala
+sc.parallelize
+sc.makeRDD(1 to 10, 3)
+```
+
+##### 从文件中创建
+
+```scala
+sc.textFile(path : String, minSplits : Int = defaultMinSplits)
+sc.hadoopFile[K, V, F <: InputFormat[K, V]](path : String, minSplits : Int)
+...
+```
+
+#### 转换算子
+
+```scala
+map()            // x => x
+distinct()		 // 去重
+flatMap()		 // x => ...
+
+// 重新分区
+repartition(numPartitions:Int)	 //底层调用coalesce()	
+coalesce(numPartitions:Int, shuffle:Boolean=false) 
+//分区数增多，必须shuffle
+//分区数较小，可以不shuffle以提高效率
+
+randomSplit(weight:Array[Double], seed:Long)  //将一个RDD切分成多个
+glom()           //将RDD中每个分区中T类型的元素转化为Array[T]
+
+union(other:RDD[T])         //合并两个RDD，不去重
+intersection(other:RDD[T])  //交集，去重
+subtract(other:RDD[T]) 		//差集
+//intersection和subtract通常存在shuffle
+
+//map
+mapPartitions(Function,Boolean)
+mapPartitionsWithIndex(Function,Boolean)
+//mapPartitions与map类似，但映射函数的输入由RDD中每个元素变为RDD中每个分区的迭代器。
+//在映射过程中如果需要频繁创建对象，map就比较低效，RDD中各个分区可以共享同一个对象以便提高性能，如：将RDD中所有数据通过JDBC连接写入数据库，如果使用map函数会为每个分区创建一个connection，开销很大，如果使用mapPartitions，可以针对每个分区创建一个connection。
+//后面的perservesPartitions指明是否保留父RDD信息。
+
+//zip 
+zip(other:RDD)      //将两个RDD组合成K/V形式，两个RDD分区数目和每个分区元素必须相同
+zipPartitions(.)    //将多个RDD按照分区号组合为新的RDD，必须具有相同分区数
+
+zipWithIndex()		//将RDD中的元素与其ID组合成键值对，需要启动一个job来计算每个分区的起始索引号
+zipWithUniqueId()	//这个ID全局唯一，1+k*N
+
+//针对键值对RDD的转换操作
+partitionBy(partitioner)
+mapValues(Function)
+flatMapValues(Function)
+
+//RDD[K,V] => RDD[K,C]
+combineByKey(createCombiner,mergerCombiner,partitioner,mapSideCombiner?,serializer)
+flodByKey(zeroValue,partitioner)
+reduceByKey(partitioner,function)
+groupByKey(partitioner)
+//以上四种都会最终转化为combineByKey
+//第一步：根据条件看是否进行mapSideCombiner
+//第二步：根据partitioner Shuffle到不同分区
+//第三步：再进行一个combiner操作
+
+//join
+cogroup(otherRDD, numPartitions)
+join(otherRDD)			
+leftOuterJoin(otherRDD)
+rightOuterJoin(otherRDD)
+//底层都是调用cogroup实现
+//一个join过程会诞生三个RDD：CoGroupRDD，MapValuesRDD,FlatMapValuesRDD
+//CoGroupRDD[K,Array(ArrayBuffer(),ArrayBuffer()...)]
+//MapValuesRDD[K,ArrayBuffer(),ArrayBuffer(),...]
+//FlatMapValuesRDD[K,V]
+subtractByKey(otherRDD) //与subtract类似，只针对K值取差集
+```
+
+#### 持久化
+
+```scala
+//持久化
+cache()
+persist(storageLevel)//默认保存在内存中，保留血缘关系
+checkpoint//持久化在HDFS，会切断RDD的血缘关系
+	//Spark长时间驻留运行，定期checkpoint会节省系统资源
+	//维护过长的血缘关系会使RDD容错重算的成本非常高
+```
+
+#### 行动算子sghenxu
+
+Spark中的每个行动算子都会触发Spark的一次调度并返回响应的结果。
+
+```scala
+first()				 //返回第一个元素
+count()              //返回元素个数
+reduce(function)
+
+collect()/toArray()  //以集合形式返回
+take(num)			 //返回下标0-num的元素
+top(num)			 //按排序返回前num个，默认升序
+takeOrdered(num)	 //与top顺序相反
+
+aggregate(zeroValue,seqOpFunction,CombOpFunction)
+//zeroValue
+//seqOpFunction RDD中每个分区元素的聚合函数
+//CombOpFunction 各个分区间的聚合函数
+fold(zeroValue,opFunction) //分区间与分区内聚合函数相同
+
+//存储
+saveAsTextFile(path)
+saveAsHadoopFile(path)
+```
+
+## SparkSQL基础
+
+## SparkStream基础
 
 ## Spark 内核概述
 
@@ -19,13 +229,21 @@ Spark驱动器节点，用于执行Spark任务中的main方法，负责实际代
 3. 跟踪Executor的执行情况；
 4. 通过UI展示查询运行情况；
 
+总的来说，**SparkContext是程序的总入口**，SparkContext初始化过程中，Spark会分别**创建DAGScheduler作业调度和TaskScheduler任务调度两级调度模块**。
+
+**作业调度模块为每个Spark作业根据Shuffle划分Stage，并为每个Stage构建一组具体的任务，然后以TaskSet任务组的形式提交给TaskScheduler。
+为了抽象出一个公共的接口供DAGScheduler使用，任务调度模块均是基于TaskScheduler和SchedulerBackend两个接口实现的：**
+
+* **TaskScheduler负责具体启动任务、监控、汇报任务；**
+* **SchedulerBackend用来与底层资源调度系统交互，配合TaskScheduler实现具体任务执行所需的资源分配。**
+
 #### Executor
 
-Spark Executor节点是一个JVM进程，负责在 Spark 作业中运行具体任务，任务彼此之间相互独立。Spark 应用启动时，Executor节点被同时启动，并且始终伴随着整个 Spark 应用的生命周期而存在。如果有Executor节点发生了故障或崩溃，Spark 应用也可以继续执行，会将出错节点上的任务调度到其他Executor节点上继续运行。
+**Spark Executor节点是一个JVM进程，负责在 Spark 作业中运行具体任务，任务彼此之间相互独立。**Spark 应用启动时，Executor节点被同时启动，并且始终伴随着整个 Spark 应用的生命周期而存在。**Excutor对每一个任务创建一个TaskRunner类，交给线程池运行，运行的结果通过ExcutorBackend返回，ExcutorBackend通过Netty与SchedulerBackend通信**。如果有Executor节点发生了故障或崩溃，Spark 应用也可以继续执行，会将出错节点上的任务调度到其他Executor节点上继续运行。
 
 Executor有两个核心功能:
 
-1. **负责运行组成Spark应用的任务，并将结果返回给驱动器进程；**
+1. **负责运行组成Spark应用的任务，并将结果返回给驱动器进程，一台机器上可以有多个Excutor，一个Excutor可以以多线程的方式运行多个Task，每个Task必须至少独占一个CPU Core；**
 2. **它们通过自身的块管理器（Block Manager）为用户程序中要求缓存的 RDD 提供内存式存储。RDD 是直接缓存在Executor进程内的，因此任务可以在运行时充分利用缓存数据加速运算。**
 
 ### Spark 通用运行流程概述
@@ -37,12 +255,12 @@ Executor有两个核心功能:
 
 Spark支持3种集群管理器（Cluster Manager），分别为：
 
-1. Standalone：独立模式，Spark原生的简单集群管理器，自带完整的服务，可单独部署到一个集群中，无需依赖任何其他资源管理系统，使用Standalone可以很方便地搭建一个集群；
+1. **Standalone：独立模式，Spark原生的简单集群管理器，自带完整的服务，可单独部署到一个集群中，无需依赖任何其他资源管理系统，使用Standalone可以很方便地搭建一个集群；**
 2. Apache Mesos：一个强大的分布式资源管理框架，它允许多种不同的框架部署在其上，包括yarn；
-3. Hadoop YARN：统一的资源管理机制，在上面可以运行多套计算框架，如mapreduce、storm等，根据driver在集群中的位置不同，分为yarn client和yarn cluster。
+3. **Hadoop YARN：统一的资源管理机制，在上面可以运行多套计算框架，如mapreduce、storm等，根据driver在集群中的位置不同，分为yarn client和yarn cluster。**
 
 实际上，除了上述这些通用的集群管理器外，Spark内部也提供了一些方便用户测试和学习的简单集群部署模式。由于在实际工厂环境下使用的绝大多数的集群管理器是Hadoop YARN，因此我们关注的重点是Hadoop YARN模式下的Spark集群部署。
-Spark的运行模式取决于传递给SparkContext的MASTER环境变量的值，个别模式还需要辅助的程序接口来配合使用，目前支持的Master字符串及URL包括：
+**Spark的运行模式取决于传递给SparkContext的MASTER环境变量的值**，个别模式还需要辅助的程序接口来配合使用，目前支持的Master字符串及URL包括：
 
 | **Master URL**        | **Meaning**                                                  |
 | :-------------------- | :----------------------------------------------------------- |
@@ -55,17 +273,17 @@ Spark的运行模式取决于传递给SparkContext的MASTER环境变量的值，
 | **yarn-cluster**      | 在Yarn集群上运行，Driver进程在Yarn集群上，Work进程也在Yarn集群上，部署模式必须使用固定值:–deploy-mode cluster。Yarn集群地址必须在HADOOP_CONF_DIR or YARN_CONF_DIR变量里定义。 |
 
 用户在提交任务给Spark处理时，以下两个参数共同决定了Spark的运行方式。
-· –master MASTER_URL ：决定了Spark任务提交给哪种集群处理。
-· –deploy-mode DEPLOY_MODE：决定了Driver的运行方式，可选值为Client或者Cluster。
+**· –master MASTER_URL ：决定了Spark任务提交给哪种集群处理。**
+**· –deploy-mode DEPLOY_MODE：决定了Driver的运行方式，可选值为Client或者Cluster。**
 
 ### Standalone 模式运行机制
 
 Standalone集群有四个重要组成部分，分别是:
 
-1. Driver：是一个进程，我们编写的Spark应用程序就运行在Driver上，由Driver进程执行；
-2. Master(RM)：是一个进程，主要负责资源的调度和分配，并进行集群的监控等职责；
-3. Worker(NM)：是一个进程，一个Worker运行在集群中的一台服务器上，主要负责两个职责，一个是用自己的内存存储RDD的某个或某些partition；另一个是启动其他进程和线程（Executor），对RDD上的partition进行并行的处理和计算。
-4. Executor：是一个进程，一个Worker上可以运行多个Executor，Executor通过启动多个线程（task）来执行对RDD的partition进行并行计算，也就是执行我们对RDD定义的例如map、flatMap、reduce等算子操作。
+1. **Driver**：是一个进程，我们编写的Spark应用程序就运行在Driver上，由Driver进程执行；
+2. **Master**(RM)：是一个进程，主要负责资源的调度和分配，并进行集群的监控等职责；
+3. **Worker**(NM)：是一个进程，一个Worker运行在集群中的一台服务器上，主要负责两个职责，一个是用自己的内存存储RDD的某个或某些partition；另一个是启动其他进程和线程（Executor），对RDD上的partition进行并行的处理和计算。
+4. **Executor**：是一个进程，一个Worker上可以运行多个Executor，Executor通过启动多个线程（task）来执行对RDD的partition进行并行计算，也就是执行我们对RDD定义的例如map、flatMap、reduce等算子操作。
 
 #### Standalone Client 模式
 
@@ -85,9 +303,11 @@ Standalone的两种模式下（client/Cluster），Master在接到Driver注册Sp
 #### Yarn Client 模式
 
 ![Yarn Client 模式](E:\JAVA-SUMMARY\Spark\5e1c41740001ff9712450741.jpg)
-在YARN Client模式下，Driver在任务提交的本地机器上运行，Driver启动后会和ResourceManager通讯申请启动ApplicationMaster，随后ResourceManager分配container，在合适的NodeManager上启动ApplicationMaster，此时的ApplicationMaster的功能相当于一个ExecutorLaucher，只负责向ResourceManager申请Executor内存。
+在YARN Client模式下，Driver在任务提交的本地机器上运行，**Driver启动后会和ResourceManager通讯申请启动ApplicationMaster**，随后**ResourceManager分配container**，在合适的NodeManager上**启动ApplicationMaster**，此时的**ApplicationMaster的功能相当于一个ExecutorLaucher，只负责向ResourceManager申请Executor内存**。
 
-ResourceManager接到ApplicationMaster的资源申请后会分配container，然后ApplicationMaster在资源分配指定的NodeManager上启动Executor进程，Executor进程启动后会向Driver反向注册，Executor全部注册完成后Driver开始执行main函数，之后执行到Action算子时，触发一个job，并根据宽依赖开始划分stage，每个stage生成对应的taskSet，之后将task分发到各个Executor上执行。
+ResourceManager接到ApplicationMaster的资源申请后会**分配container**，然后ApplicationMaster**在资源分配指定的NodeManager上启动Executor进程**，Executor进程启动后会**向Driver反向注册**，Executor**全部注册完成后Driver开始执行main函数**，之后**执行到Action算子时，触发一个job**，并根据宽依赖开始**划分stage**，每个stage**生成对应的taskSet**，之后**将task分发到各个Executor上执行**。
+
+**AppMaster负责Excutor的申请，Driver负责Job和Stage的划分以及Task的创建、分配、调度。**
 
 #### Yarn Cluster 模式
 
@@ -102,9 +322,9 @@ Driver启动后向ResourceManager申请Executor内存，ResourceManager接到App
 ### Spark 通信架构概述
 
 Spark2.x版本使用Netty通讯框架作为内部通讯组件。spark 基于netty新的rpc框架借鉴了Akka的中的设计，它是基于Actor模型，如下图所示：
-<img src="E:\JAVA-SUMMARY\Spark\5e1c41760001f0b009270612.jpg" alt="Actor" style="zoom: 50%;" />
+<img src="5e1c41760001f0b009270612.jpg" alt="Actor" style="zoom: 50%;" />
 Spark通讯框架中各个组件（Client/Master/Worker）可以认为是一个个独立的实体，各个实体之间通过消息来进行通信。具体各个组件之间的关系图如下：
-<img src="E:\JAVA-SUMMARY\5e1c41770001d37e07690553.jpg" alt="Spark通讯架构" style="zoom: 67%;" />
+<img src="5e1c41770001d37e07690553.jpg" alt="Spark通讯架构" style="zoom: 67%;" />
 
 Endpoint（Client/Master/Worker）有1个InBox和N个OutBox（N>Endpoint（Client/Master/Worker）有1个InBox和N个OutBox（N>=1，N取决于当前Endpoint与多少其他的Endpoint进行通信，一个与其通讯的其他Endpoint对应一个OutBox），Endpoint接收到的消息被写入InBox，发送出去的消息写入OutBox并被发送到其他Endpoint的InBox中。
 
@@ -166,9 +386,9 @@ Driver初始化SparkContext过程中，会分别初始化DAGScheduler、TaskSche
 Spark的任务调度是从DAG切割开始，主要是由DAGScheduler来完成。当遇到一个Action操作后就会触发一个Job的计算，并交给DAGScheduler来提交，下图是涉及到Job提交的相关方法调用流程图。
 ![Job提交调用栈](E:\JAVA-SUMMARY\Spark\5e1c417e0001e90212360374.jpg)
 
-Job由最终的RDD和Action方法封装而成，SparkContext将Job交给DAGScheduler提交，它会根据RDD的血缘关系构成的DAG进行切分，将一个Job划分为若干Stages，具体划分策略是，由最终的RDD不断通过依赖回溯判断父依赖是否是宽依赖，即以Shuffle为界，划分Stage，窄依赖的RDD之间被划分到同一个Stage中，可以进行pipeline式的计算，如上图紫色流程部分。划分的Stages分两类，一类叫做ResultStage，为DAG最下游的Stage，由Action方法决定，另一类叫做ShuffleMapStage，为下游Stage准备数据，下面看一个简单的例子WordCount。
+Job由最终的RDD和Action方法封装而成，SparkContext将Job交给DAGScheduler提交，它会根据RDD的血缘关系构成的DAG进行切分，将一个Job划分为若干Stages，具体划分策略是，由最终的RDD不断通过依赖回溯判断父依赖是否是宽依赖，即以Shuffle为界，划分Stage，窄依赖的RDD之间被划分到同一个Stage中，可以进行pipeline式的计算，如上图紫色流程部分。**划分的Stages分两类，一类叫做ResultStage，为DAG最下游的Stage，由Action方法决定，另一类叫做ShuffleMapStage，为下游Stage准备数据**，下面看一个简单的例子WordCount。
 ![WordCount实例](E:\JAVA-SUMMARY\Spark\5e1c417f000111b608310305.jpg)
-Job由saveAsTextFile触发，该Job由RDD-3和saveAsTextFile方法组成，根据RDD之间的依赖关系从RDD-3开始回溯搜索，直到没有依赖的RDD-0，在回溯搜索过程中，RDD-3依赖RDD-2，并且是宽依赖，所以在RDD-2和RDD-3之间划分Stage，RDD-3被划到最后一个Stage，即ResultStage中，RDD-2依赖RDD-1，RDD-1依赖RDD-0，这些依赖都是窄依赖，所以将RDD-0、RDD-1和RDD-2划分到同一个Stage，即ShuffleMapStage中，实际执行的时候，数据记录会一气呵成地执行RDD-0到RDD-2的转化。不难看出，其本质上是一个深度优先搜索算法。
+Job由saveAsTextFile触发，该Job由RDD-3和saveAsTextFile方法组成，根据RDD之间的依赖关系从RDD-3开始回溯搜索，直到没有依赖的RDD-0，在**回溯搜索**过程中，RDD-3依赖RDD-2，并且是宽依赖，所以在RDD-2和RDD-3之间划分Stage，RDD-3被划到最后一个Stage，即ResultStage中，RDD-2依赖RDD-1，RDD-1依赖RDD-0，这些依赖都是窄依赖，所以将RDD-0、RDD-1和RDD-2划分到同一个Stage，即ShuffleMapStage中，实际执行的时候，数据记录会一气呵成地执行RDD-0到RDD-2的转化。不难看出，其本质上是一个深度优先搜索算法。
 
 **一个Stage是否被提交，需要判断它的父Stage是否执行，只有在父Stage执行完毕才能提交当前Stage，如果一个Stage没有父Stage，那么从该Stage开始提交。**Stage提交时会将Task信息（分区信息以及方法等）序列化并被打包成TaskSet交给TaskScheduler，一个Partition对应一个Task，另一方面TaskScheduler会监控Stage的运行状态，只有Executor丢失或者Task由于Fetch失败才需要重新提交失败的Stage以调度运行失败的任务，其他类型的Task失败会在TaskScheduler的调度过程中重试。
 
@@ -176,22 +396,22 @@ Job由saveAsTextFile触发，该Job由RDD-3和saveAsTextFile方法组成，根�
 
 ### Spark Task 级调度
 
-Spark Task的调度是由TaskScheduler来完成，由前文可知，DAGScheduler将Stage打包到TaskSet交给TaskScheduler，TaskScheduler会将TaskSet封装为TaskSetManager加入到调度队列中，TaskSetManager结构如下图所示。
-![TaskManager结构](E:\JAVA-SUMMARY\Spark\5e1c417f00019e4d02720146.jpg)
+Spark Task的调度是由TaskScheduler来完成，由前文可知，**DAGScheduler将Stage打包到TaskSet交给TaskScheduler**，**TaskScheduler会将TaskSet封装为TaskSetManager加入到调度队列**中，TaskSetManager结构如下图所示。
+![TaskManager结构](5e1c417f00019e4d02720146.jpg)
 
 **TaskSetManager负责监控管理同一个Stage中的Tasks，TaskScheduler就是以TaskSetManager为单元来调度任务。**
 ![taskmanager-2](E:\JAVA-SUMMARY\Spark\5e1c41800001f67811580651.jpg)
 
-前面也提到，TaskScheduler初始化后会启动SchedulerBackend，它负责跟外界打交道，接收Executor的注册信息，并维护Executor的状态，所以说SchedulerBackend是管“粮食”的，同时它在启动后会定期地去“询问”TaskScheduler有没有任务要运行，也就是说，它会定期地“问”TaskScheduler“我有这么余量，你要不要啊”，TaskScheduler在SchedulerBackend“问”它的时候，会从调度队列中按照指定的调度策略选择TaskSetManager去调度运行，大致方法调用流程如下图所示：
+前面也提到，**TaskScheduler初始化后会启动SchedulerBackend，它负责跟外界打交道，接收Executor的注册信息，并维护Executor的状态**，所以说SchedulerBackend是管“粮食”的，同时它在启动后会定期地去“询问”TaskScheduler有没有任务要运行，也就是说，它会定期地“问”TaskScheduler“我有这么余量，你要不要啊”，TaskScheduler在SchedulerBackend“问”它的时候，会**从调度队列中按照指定的调度策略选择TaskSetManager去调度运行**，大致方法调用流程如下图所示：
 
 ![task调度流程](E:\JAVA-SUMMARY\Spark\5e1c418000010db710340394.jpg)
 
-将TaskSetManager加入rootPool调度池中之后，调用SchedulerBackend的riviveOffers方法给driverEndpoint发送ReviveOffer消息；**driverEndpoint收到ReviveOffer消息后调用makeOffers方法，过滤出活跃状态的Executor（这些Executor都是任务启动时反向注册到Driver的Executor），然后将Executor封装成WorkerOffer对象；准备好计算资源（WorkerOffer）后，taskScheduler基于这些资源调用resourceOffer在Executor上分配task。**
+将TaskSetManager加入rootPool调度池中之后，调用SchedulerBackend的reciveOffers方法给driverEndpoint发送ReciveOffer消息；**driverEndpoint收到ReviveOffer消息后调用makeOffers方法，过滤出活跃状态的Executor（这些Executor都是任务启动时反向注册到Driver的Executor），然后将Executor封装成WorkerOffer对象；准备好计算资源（WorkerOffer）后，taskScheduler基于这些资源调用resourceOffer在Executor上分配task。**
 
 #### 调度策略
 
 前面讲到，TaskScheduler会先把DAGScheduler给过来的TaskSet封装成TaskSetManager扔到任务队列里，然后再从任务队列里按照一定的规则把它们取出来在SchedulerBackend给过来的Executor上运行。这个调度过程实际上还是比较粗粒度的，是面向TaskSetManager的。
-TaskScheduler是以树的方式来管理任务队列，树中的节点类型为Schdulable，叶子节点为TaskSetManager，非叶子节点为Pool，下图是它们之间的继承关系。
+**TaskScheduler是以树的方式来管理任务队列，树中的节点类型为Schdulable，叶子节点为TaskSetManager，非叶子节点为Pool**，下图是它们之间的继承关系。
 ![任务队列继承关系](E:\JAVA-SUMMARY\Spark\5e1c41810001d37806790452.jpg)
 
 TaskScheduler**支持两种调度策略，一种是FIFO，也是默认的调度策略，另一种是FAIR**。在TaskScheduler初始化过程中会实例化rootPool，表示树的根节点，是Pool类型。
@@ -207,8 +427,8 @@ FAIR调度策略的树结构如下图所示：
 ![FAIR调度策略内存结构](E:\JAVA-SUMMARY\Spark\5e1c41830001583905940595.jpg)
 
 FAIR模式中有一个rootPool和多个子Pool，各个子Pool中存储着所有待分配的TaskSetMagager。
-在FAIR模式中，需要先对子Pool进行排序，再对子Pool里面的TaskSetMagager进行排序，因为Pool和TaskSetMagager都继承了Schedulable特质，因此使用相同的排序算法。
-排序过程的比较是基于Fair-share来比较的，每个要排序的对象包含三个属性: runningTasks值（正在运行的Task数）、minShare值、weight值，比较时会综合考量runningTasks值，minShare值以及weight值。
+在FAIR模式中，需要**先对子Pool进行排序，再对子Pool里面的TaskSetMagager进行排序**，因为Pool和TaskSetMagager都继承了Schedulable特质，因此使用相同的排序算法。
+排序过程的比较是基于Fair-share来比较的，**每个要排序的对象包含三个属性: runningTasks值（正在运行的Task数）、minShare值、weight值**，比较时会综合考量runningTasks值，minShare值以及weight值。
 注意，minShare、weight的值均在公平调度配置文件fairscheduler.xml中被指定，调度池在构建阶段会读取此文件的相关配置。
 
 1. 如果A对象的runningTasks大于它的minShare，B对象的runningTasks小于它的minShare，那么B排在A前面；（runningTasks比minShare小的先执行）
@@ -242,7 +462,7 @@ DAGScheduler切割Job，划分Stage, 通过调用submitStage来提交一个Stage
 #### 失败重试与黑名单机制
 
 除了选择合适的Task调度运行外，还需要监控Task的执行状态，前面也提到，与外部打交道的是SchedulerBackend，Task被提交到Executor启动执行后，Executor会将执行状态上报给SchedulerBackend，SchedulerBackend则告诉TaskScheduler，TaskScheduler找到该Task对应的TaskSetManager，并通知到该TaskSetManager，这样TaskSetManager就知道Task的失败与成功状态，对于失败的Task，会记录它失败的次数，如果失败次数还没有超过最大重试次数，那么就把它放回待调度的Task池子中，否则整个Application失败。
-![失败重试与黑名单机制-模块交互过程](E:\JAVA-SUMMARY\Spark\5e1c41830001f67811580651.jpg)
+![失败重试与黑名单机制-模块交互过程](5e1c41830001f67811580651.jpg)
 在记录Task失败次数过程中，会记录它上一次失败所在的Executor Id和Host，这样下次再调度这个Task时，会使用黑名单机制，避免它被调度到上一次失败的节点上，起到一定的容错作用。黑名单记录Task上一次失败所在的Executor Id和Host，以及其对应的“拉黑”时间，“拉黑”时间是指这段时间内不要再往这个节点上调度这个Task了。
 
 ## Spark Shuffle 解析
@@ -251,7 +471,7 @@ DAGScheduler切割Job，划分Stage, 通过调用submitStage来提交一个Stage
 
 #### ShuffleMapStage与ResultStage
 
-![ShuffleMapStage与ResultStage](E:\JAVA-SUMMARY\5e1c41e6000111b608310305.jpg)
+![ShuffleMapStage与ResultStage](5e1c41e6000111b608310305.jpg)
 **在划分stage时，最后一个stage称为finalStage，它本质上是一个ResultStage对象，前面的所有stage被称为ShuffleMapStage。**
 **ShuffleMapStage的结束伴随着shuffle文件的写磁盘。**
 **ResultStage基本上对应代码中的action算子，即将一个函数应用在RDD的各个partition的数据集上，意味着一个job的运行结束。**
@@ -288,7 +508,7 @@ DAGScheduler切割Job，划分Stage, 通过调用submitStage来提交一个Stage
 
 **shuffle read**阶段，通常就是一个stage刚开始时要做的事情。此时该stage的每一个task就需要**将上一个stage的计算结果中的所有相同key，从各个节点上通过网络都拉取到自己所在的节点上**，然后进行key的聚合或连接等操作。由于shuffle write的过程中，map task给下游stage的每个reduce task都创建了一个磁盘文件，因此shuffle read的过程中，每个reduce task只要从上游stage的所有map task所在节点上，拉取属于自己的那一个磁盘文件即可。
 
-shuffle read的拉取过程是一边拉取一边进行聚合的。每个shuffle read task都会有一个自己的buffer缓冲，**每次都只能拉取与buffer缓冲相同大小的数据，然后通过内存中的一个Map进行聚合等操作**。聚合完一批数据后，再拉取下一批数据，并放到buffer缓冲中进行聚合操作。以此类推，直到最后将所有数据到拉取完，并得到最终的结果。
+**shuffle read的拉取过程是一边拉取一边进行聚合的。每个shuffle read task都会有一个自己的buffer缓冲，每次都只能拉取与buffer缓冲相同大小的数据，然后通过内存中的一个Map进行聚合等操作**。聚合完一批数据后，再拉取下一批数据，并放到buffer缓冲中进行聚合操作。以此类推，直到最后将所有数据到拉取完，并得到最终的结果。
 
 未优化的HashShuffleManager工作原理如图所示：
 ![未优化的HashShuffleManager工作原理](E:\JAVA-SUMMARY\Spark\5e1c41e70001154308160436.jpg)
@@ -347,7 +567,7 @@ bypass运行机制的SortShuffleManager工作原理如图所示：
 
 作为一个 JVM 进程，Executor 的内存管理建立在 JVM 的内存管理之上，Spark 对 JVM 的堆内（On-heap）空间进行了更为详细的分配，以充分利用内存。同时，Spark 引入了堆外（Off-heap）内存，使之可以直接在工作节点的系统内存中开辟空间，进一步优化了内存的使用。
 **堆内内存受到JVM统一管理，堆外内存是直接向操作系统进行内存的申请和释放。**
-![Executor堆内与堆外内存](E:\JAVA-SUMMARY\Spark\5e1c41ee0001aad506400495.jpg)
+![Executor堆内与堆外内存](5e1c41ee0001aad506400495.jpg)
 
 #### 堆内内存
 
@@ -570,9 +790,9 @@ Spark提供的Broadcast Variable是只读的，并且在每个Executor上只会�
 
 可以通过调用SparkContext的broadcast()方法来针对每个变量创建广播变量。然后在算子的函数内，使用到广播变量时，每个Executor只会拷贝一份副本了，每个task可以使用广播变量的value()方法获取值。
 **在任务运行时，Executor并不获取广播变量，当task执行到 使用广播变量的代码时，会向Executor的内存中请求广播变量**，如下图所示：
-![task向Executor请求广播变量](E:\JAVA-SUMMARY\5e1c41f700019ecf10320673.jpg)
+![task向Executor请求广播变量](5e1c41f700019ecf10320673.jpg)
 **之后Executor会通过BlockManager向Driver拉取广播变量，然后提供给task进行使用**，如下图所示：
-![Executor从Driver拉取广播变量](E:\JAVA-SUMMARY\5e1c41f70001ef4710270669.jpg)
+![Executor从Driver拉取广播变量](5e1c41f70001ef4710270669.jpg)
 **广播大变量是Spark中常用的基础优化方法，通过减少内存占用实现任务执行性能的提升。**
 
 ### 累加器

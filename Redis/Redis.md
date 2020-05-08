@@ -151,7 +151,7 @@ Redis采用的是基于内存的**单进程单线程**模型的 **KV 数据库**
 
 Reids之所以单线程还如此之快的原因就是因为内部采用了I/O多路复用机制模型，但是这种机制不是什么情况下都是使用的，应用于大量的链接，处理时间又不是很长的业务，连接数最好是大于1000，并发程度不高或者局域网环境下NIO并没有显著的性能优势。
 
-## Redis数据类型
+## Redis数据结构
 
 **String，List，Set，Zset，Hash**
 
@@ -172,6 +172,352 @@ Reids之所以单线程还如此之快的原因就是因为内部采用了I/O多
 **Zset：**有序集合，在set基础上加了score值，zset1 k1 score1 v1 k2 score2 v2，...
 
 ​			TopN，排行榜
+
+### Simple Dynamic String (SDS)
+
+Redis以一个结构体包含String的数据，包括len、free、buff。
+
+```c
+struct sdshdr{
+    int len; //SDS已使用长度
+    int free; //SDS未使用长度
+    char buf[]; //字节数组,保存数据。
+}
+```
+
+#### SDS的动态扩容策略
+
+Redis作为数据库，对速度要求严苛，如果每次对数据进行修改时都要执行一次内存重分配，会对性能造成很大的影响。SDS通过未使用空间解除了字符串和底层数组的长度关联：在SDS中，buf数组的长度为len+free+1（末尾以‘\0’结尾）。
+通过未使用空间，SDS实现了空间预分配和惰性空间释放两种优化策略。
+
+##### 空间预分配
+
+* SDS修改之后，若长度（len）小于1MB时，程序会分配与len相同大小的free空间；
+* SDS修改之后，若长度（len）大于等于1MB时，程序将分配１MB的free空间
+
+##### 惰性空间释放
+
+SDS缩短字符串时，程序并不立即使用内存重分配来回收缩短之后多出来的字节，而是利用free进行管理，等待将来使用。
+
+#### 区别
+
+* SDS**获取长度**直接读取len即可，**O(1)复杂度**，而C语言必须遍历一遍才能获取。
+* SDS具有free空间，对字符串改动时**无需频繁对内存进行重分配**。
+* SDS**杜绝了缓冲区溢出**的问题，当free空间不够时，SDS会扩展空间再使用。
+* SDS是**二进制安全**的，可以保存文本和图片、视频等二进制数据，而C语言中的string只能保存文本数据（c语言遇到'\0'就认为结束，而SDS通过len管理长度）。
+* SDS可以重用部分<string.h>库中的函数
+
+### 链表
+
+Redis构建了自己的链表结构
+
+```c
+typedef struct listNode{
+	struct listNode *prev;
+    struct listNode *next;
+    void *value;
+}listNode;
+
+typedef struct list{
+	struct listNode *head;
+    struct listNode *tail;
+    unsigned long len;
+    void *(*dup)(void *ptr); //节点复制函数
+    void *(*free)(void *ptr); //节点释放函数
+    int (*match)(void *ptr, void *key); //节点值对比函数
+}list;
+```
+
+#### 特性
+
+* 双端，带头尾指针和前后节点指针
+* 无环，对表的访问以NULL为终点
+* 带长度计数器
+* 多态，使用void指针保存节点值，可用于保存不同类型的值
+
+### 字典（dist）
+
+又称map、table，用于保存键值对。Redis底层就是用字典实现的。
+
+#### 底层实现
+
+字典底层使用哈希表实现。
+
+##### 哈希表
+
+```c
+typedef struct dictht{
+    dictEntry **table;		//哈希表数组
+    unsigned long size;		//哈希表大小，即table数组大小
+    unsigned long sizemask;	//哈希表大小掩码，总是等于size-1
+    unsigned long used;		//已有节点数量
+}dictht;
+
+```
+
+##### 哈希表节点
+
+```c
+typedef struct dictEntry{
+    void *key;
+    union{
+        void *val;
+        uint64_tu64;
+        int64_ts64;
+    }v;
+    struct dictEntry *next; //指向另一个哈希表节点指针，解决Hash冲突
+}dictEntry;
+```
+
+##### 字典
+
+```c
+typedef struct dict{
+    dictType *type;		//类型特定函数
+    void *privdata;		//私有数据
+    dictht ht[2];		//哈希表
+    int rehashidx;		//rehash索引，rehash不在进行时，值为-1
+}dict;
+```
+
+* type属性指向dictType结构，每个dictType保存了一组用于操作特定类型键值对的函数；
+* privdata属性保存了需要传给这些函数的可选参数。
+* ht属性包含了两个哈希表，一般只会用ht[0]，ht[1]只会在rehash时使用。
+* rehashidx记录了rehash的进度，没有rehash时值为-1。
+
+<img src="1588563282789.png" alt="1588563282789" style="zoom: 25%;" />
+
+#### 哈希算法
+
+```c
+hash = dict->type->hashFunction(key);	//算出key的哈希值
+index = hash & dict->ht[x].sizemask;	//与掩码与运算
+```
+
+##### 解决hash冲突
+
+单向链表的方式，头插法。
+
+##### rehash
+
+负载因子：load_factor = ht[0].used / ht[0].size
+
+###### rehash的条件
+
+* 服务器目前没有执行BGSAVE命令或BGREWRITEAOP命令，且负载因子大于等于1；
+* 服务器目前正在执行BGSAVE命令或BGREWRITEAOP命令，且负载因子大于等于5；
+
+###### 步骤
+
+* 为ht[1]分配空间：
+  * 如果执行的是扩展操作，那么ht[1]的大小为第一个大于等于`ht[0].used*2`的2的n次方幂；
+  * 如果执行的是收缩操作，那么ht[1]的大小为第一个大于等于`ht[0].used`的2的n次方幂
+* 将ht[0]中所有的键值对rehash到ht[1]上；
+* 释放ht[0]，将ht[1]设为ht[0]，并在ht[1]上创建一个空白哈希表。
+
+###### 渐进式rehash
+
+* 为ht[1]分配空间，让字典同时持有ht[0]，ht[1]两个hash表。
+* 字典中维持一个索引计数器变量rehashidx，并将值设为0，表示rehash开始。
+* 在rehash期间，每次对字典执行添加、删除、查找或更新操作时，程序除了执行指定操作以外，还会顺带将ht[0]哈希表在rehashidx索引上的所有键值对rehash到ht[1]，当rehash工作完成后，程序将rehashidx属性增1；
+* 随着字典操作不断执行，最终在某个时间点上，ht[0]的所有键值对都会被rehash到ht[1]，这时rehashidx置为-1。
+
+渐进式rehash过程中，字典查找一个键，会先在ht[0]中查找，若果没找到，就在ht[1]中查找，而增加操作只会在ht[1]中完成。
+
+### 跳跃表（SkipList）
+
+一种有序的数据结构，平均O(logN)的查找，用于实现有序集合键和在集群节点中用作内部数据结构。
+
+#### 底层实现
+
+```c
+//跳跃表节点
+typedef struct zskiplistNode{
+    //层
+    struct zskiplistLevel{
+        struct zskiplistNode *forward;		//前进指针
+        unsigned int span;					//跨度
+    }level[];
+    struct zskiplistNode *backward;			//后退指针
+    double score;							//分值
+    robj *obj;								//成员对象
+} zskiplistNode;
+```
+
+* 层：level数组可以包含多个元素，每个元素都包含指向其他节点的指针。程序根据幂次定律随机生成介于1到32的值作为层高；
+  * 前进指针：指向表尾方向的前进指针；
+  * 跨度：两个节点间的距离；
+* 后退指针：每个节点只有一个，跨度为1，指向前一个结点；
+* 分值：用于从小到大排序；
+* obj：成员对象指针，指向一个字符串，分值相同的对象会按字符串字典序排序。
+
+```c
+typedef struct zkskiplist{
+	structz skiplistNode *header, *tail;	//头尾节点
+    unsigned long length;					//长度
+    int level;								//不含header的最大层数
+}
+```
+
+### 整数集合 ( intset )
+
+整数集合是集合键的底层实现之一，当一个集合只包含整数，且元素数量不多时，Redis就会使用就整数集合作为集合键的底层实现。
+
+#### 底层实现
+
+```c
+typedef struct intset{
+    uint32_t encoding;		//编码方式
+    uint32_t length;		//元素数量
+    int8_t conntents[];		//元素数组
+}intset;
+```
+
+intset中可以保存16位，32位和64位的整数值，并且保证集合中数不会重复。
+
+contents数组是整数集合的底层实现，各个数在数组中按值的大小从小到大排序。
+
+虽然contents属性声明为int8_t，但contents数组并不保存int8_t的值，它的类型取决于encoding的值。
+
+#### 升级
+
+当一个新元素添加进整数集合，且其长度比encoding指定的类型要长时，整数集合需要先进行升级：
+
+* 根据新元素类型，扩展底层数组空间大小；
+* 将底层数组现有元素依次移动到合适位置，转换成新的类型；
+* 将新元素添加进首位或末尾。
+
+##### 升级的好处
+
+* 提升整数集合灵活性
+* 节约内存
+
+整数集合不支持降级。
+
+### 压缩列表
+
+压缩列表是Redis为了节约内存开发的，由一系列特殊编码的连续内存块组成的顺序型数据结构。
+
+#### 底层实现
+
+压缩列表是顺序型结构，其从头到尾由以下部分组成：
+
+* zlbytes：uint32_t，记录整个压缩列表占用的字节数，内存重分配或计算zlend时使用；
+* zltail：uint32_t，尾节点起始地址的字节偏移量，可以很快找到尾节点的地址；
+* zllen：uint16_t，节点数量，这个属性的值小于UINT16_MAX（65536）时就是节点的数量，否则任然需要遍历整个列表才能得出；
+* entry：列表节点，每个列表节点可以保存一个字节数组或一个整数值
+  * previous_entry_length：记录压缩列表前一个节点的长度，可以用于反向遍历，占用长度尾1字节或5字节；
+  * encoding：记录contents中保存的是整数还是字节数组、以及他们的长度，占用一字节、两字节或五字节
+  * content：保存节点的值
+* zlend：uint8_t，特殊值0xFF，标记压缩列表末尾。
+
+#### 连锁更新
+
+由于前一节点长度小于254字节，previous_entry_length属性只需一个字节，那么当有一组连续的长度介于250字节到253字节的节点在压缩列表中，我们将一个长度大于等于254字节的新节点插入它们前面。后续每一个节点的previous_entry_length属性都一次需要额外4个字节，导致连锁的空间重分配操作，最坏复杂度O(N^2)。
+
+但这种情况发生的条件很苛刻，ziplistPush的平均复杂度仅为O(N)。
+
+### 对象
+
+Redis基于不同的数据结构创建对象系统，其包含字符串、列表、哈希、集合、有序集合。
+
+```c
+typedef struct redisObject{
+    unsigned type;
+    unsigned encoding;
+    void *ptr;
+    //...
+}robj;
+```
+
+
+
+#### 字符串对象
+
+字符串对象的编码可以是int，embstr，raw
+
+SET number 10086
+
+* 当value是可以用long表示的整数时，redis使用int编码；
+* 当value是小于32字节的字符串时，redis使用embstr编码；
+* 当value是大于32字节的字符串时，redis使用str编码；
+
+emb编码的字符串没有任何修改程序，因此一旦对emb编码的字符串执修改操作，redis会将其转换为raw编码的字符串。
+
+#### 列表对象
+
+列表对象的编码可以是ziplist或linkedlist。
+
+RPUSH number 1 “three” 5
+
+当满足：
+
+* 列表对象保存的所有字符串元素的长度都小于64字节
+* 列表对象保存的元素数量小于512个
+
+列表对象使用ziplist编码。
+否则使用linkedlist。
+
+#### 哈希对象
+
+哈希对象的编码可以是ziplist与hashtable。
+
+使用ziplist编码的哈希对象，每当有新的键值对加入哈希对象时，程序会先将保存了键的节点推入表尾，再将保存了值的节点推入表尾。因此
+
+* 一个键值对总是挨在一起，键在前，值在后；
+
+* 先添加到哈希对象中的键值对在前，后添加的在后。
+
+使用hashtable编码的哈希对象使用字典作为底层实现，键、值都作为一个字符串对象。
+
+**编码转换**：
+
+当满足：
+
+* 列表对象保存的所有字符串元素的长度都小于64字节
+* 列表对象保存的元素数量小于512个
+
+列表对象使用ziplist编码。
+否则使用hashtable编码。
+
+#### 集合对象
+
+集合对象的编码是intset或hashtable。
+
+当集合保存的所有元素都是整数，且元素数量不超过512个时，使用intset编码。
+
+#### 有序集合对象
+
+有序集合对象的编码是ziplist或skiplist。
+
+使用ziplist编码的有序集合使用两个紧挨在一起的压缩列表节点来保存，第一个节点保存元素成员，第二个节点保存分值。
+
+使用skiplist编码的有序集合底层实现是zset对象。**一个zset对象同时包含一个字典和一个跳跃表**。字典结构保存的是从成员到分值的映射，实现O(1)的查找，跳跃表实现O(N)的遍历。**跳跃表和字典会通过指针共享相同的成员和分值，不会浪费额外的内存。**
+
+**编码转换**
+
+有序集合对象同时满足：
+
+* 元素数量小于128个
+* 所有元素成员小于64字节
+
+使用ziplist编码，否则使用skiplist编码。
+
+#### 对象操作
+
+##### 内存回收
+
+Redis基于引用计数实现了内存回收机制。
+
+##### 对象共享
+
+Redis会对包含整数值的字符串对象进行共享。当数据库键指向一个现有值对象时，被共享的值对象引用计数增一。
+
+目前来说，Redis会在初始化服务器时，创建一万个字符串对象，包含从0到9999的所有整数值。
+
+##### 对象的空转时长
+
+对象redisObject的最后一个属性lru记录对象最后一次被访问的时间。Redis配置内存回收算法为volatile-lru或allkeys-lru时，当服务器占用的内存数超过mexmemory选项所设置的上限值，空转时长较高的键会被优先释放，回收内存。
 
 ## Redis 内部结构
 
