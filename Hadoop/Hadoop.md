@@ -904,7 +904,7 @@ HDFS HA的实现中要考虑以下几个问题：
 
 #### 5.2 Yarn HA实现
 
-ResourceManager并不会保存已经分配给每个ApplicationMaster的资源信息和每个NodeManager的资源使用信息，这些均可通过心跳重构出来，因此，Yarnde HA实现是狠轻量级的。
+ResourceManager并不会保存已经分配给每个ApplicationMaster的资源信息和每个NodeManager的资源使用信息，这些均可通过心跳重构出来，因此，Yarn HA实现是很轻量级的。
 
 Yarn将共享存储系统抽象成RMStateStore，以保存恢复ResoureManager所需的必备信息，包括Application状态信息，Application对应的每个ApplicationAttempt信息和安全令牌信息。
 
