@@ -1,6 +1,32 @@
-# JAVA基础知识总结
+JAVA基础知识总结
 
 ## Object类
+
+### 所有方法
+
+```java
+public native int hashCode()
+
+public boolean equals(Object obj)
+
+protected native Object clone() throws CloneNotSupportedException
+
+public String toString()
+
+public final native Class<?> getClass()
+
+protected void finalize() throws Throwable {}
+
+public final native void notify()
+
+public final native void notifyAll()
+
+public final native void wait(long timeout) throws InterruptedException
+
+public final void wait(long timeout, int nanos) throws InterruptedException
+
+public final void wait() throws InterruptedException
+```
 
 ### hashCode方法与equals方法
 
@@ -24,6 +50,26 @@
 
   如果我们将某个自定义对象存到HashMap或者HashSet及其类似实现类中的时候，**如果该对象的属性参与了hashCode的计算，那么就不能修改该对象参数hashCode计算的属性了。**有可能会移除不了元素，导致内存泄漏。
 
+### clone
+
+clone() 是 Object 的 protected 方法，它不是 public，一个类不显式去重写 clone()，其它类就不能直接去调用该类实例的 clone() 方法。 
+
+clone() 方法并不是 Cloneable 接口的方法，而是 Object 的一个 protected 方法。Cloneable 接口只是规定，如果一个类没有实现 Cloneable 接口又调用了 clone() 方法，就会抛出 CloneNotSupportedException。 
+
+```java
+public class CloneExample implements Cloneable {
+    private int a;
+    private int b;
+
+    @Override
+    public Object clone() throws CloneNotSupportedException {
+        return super.clone();
+    }
+}
+```
+
+使用 clone() 方法来拷贝一个对象即复杂又有风险，它会抛出异常，并且还需要类型转换。Effective Java 书上讲到，最好不要去使用 clone()，可以使用拷贝构造函数或者拷贝工厂来拷贝一个对象。 
+
 ### JAVA对象的生命周期
 
 对象的整个生命周期大致可以分为7个阶段：创建阶段（Creation）、应用阶段（Using）、不可视阶段（Invisible）、不可到达阶段（Unreachable）、可收集阶段（Collected）、终结阶段（Finalized）与释放阶段（Free）。
@@ -31,6 +77,44 @@
 ### java类生命周期
 
 一个java类的完整的生命周期会经历加载、连接、初始化、使用、和卸载五个阶段
+
+## 继承
+
+**访问权限**
+
+* private
+* protected 修饰成员，子类可见
+* default 包级可见
+* public
+
+**抽象类与接口**
+
+抽象类和普通类最大的区别是，抽象类不能被实例化，只能被继承。 
+
+ 接口是抽象类的延伸 ，从 Java 8 开始，接口也可以拥有默认的方法实现，这是因为不支持默认方法的接口的维护成本太高了。在 Java 8 之前，如果一个接口想要添加新的方法，那么要修改所有实现了该接口的类，让它们都实现新增的方法。
+
+接口的成员（字段 + 方法）默认都是 public 的，并且不允许定义为 private 或者 protected。
+
+接口的字段默认都是 static 和 final 的。
+
+**比较**
+
+- 从设计层面上看，抽象类提供了一种 IS-A 关系，需要满足里式替换原则，即子类对象必须能够替换掉所有父类对象。而接口更像是一种 LIKE-A 关系，它只是提供一种方法实现契约，并不要求接口和实现接口的类具有 IS-A 关系。
+- 从使用上来看，一个类可以实现多个接口，但是不能继承多个抽象类。
+- 接口的字段只能是 static 和 final 类型的，而抽象类的字段没有这种限制。
+- 接口的成员只能是 public 的，而抽象类的成员可以有多种访问权限。
+
+**重写与重载**
+
+**重写（Override）**存在于继承体系中，指子类实现了一个与父类在方法声明上完全相同的一个方法。重写有以下三个限制：
+
+- 子类方法的访问权限必须大于等于父类方法；
+- 子类方法的返回类型必须是父类方法返回类型或为其子类型。
+- 子类方法抛出的异常类型必须是父类抛出异常类型或为其子类型。
+
+**重载（Overload）**存在于同一个类中，指一个方法与已经存在的方法名称上相同，但是参数类型、个数、顺序至少有一个不同。
+
+应该注意的是，返回值不同，其它都相同不算是重载。
 
 ## JAVA数组
 
@@ -180,7 +264,7 @@ public static void main(String[] args) {
     list.add(1);  
     list.add("121");  
     list.add(new Date());  
-}  
+} 
 ```
 
 #### 3.类型擦除引起的问题及解决方法
@@ -545,7 +629,197 @@ public class Test2<T> {
 
 因为这是一个泛型方法，在泛型方法中使用的T是自己在方法中定义的 T，而不是泛型类中的T。
 
+## 缓存池
+
+new Integer(123) 与 Integer.valueOf(123) 的区别在于：
+
+- new Integer(123) 每次都会新建一个对象；
+- Integer.valueOf(123) 会使用缓存池中的对象，多次调用会取得同一个对象的引用。
+
+ **valueOf() 方法**：先判断值是否在缓存池中，如果在的话就直接返回缓存池的内容。
+ Java 8 中，Integer 缓存池的大小默认为 -128~127。  
+
+编译器会在自动装箱过程调用 valueOf() 方法，因此多个值相同且值在缓存池范围内的 Integer 实例使用自动装箱来创建，那么就会引用相同的对象。 
+
+## String
+
+#### String 不可变
+
+String 被声明为 final，因此它不可被继承。value 数组被声明为 final，这意味着 value 数组初始化之后就不能再引用其它数组。并且 String 内部没有改变 value 数组的方法，因此可以保证 String 不可变。
+
+##### 不可变的好处
+
+*  **可以缓存 hash 值** 
+*  **String Pool 的需要** 
+*  **安全性**，  String 经常作为参数 
+* **线程安全** ， String 不可变性天生具备线程安全，可以在多个线程中安全地使用。 
+
+#### 内部实现
+
+在 Java 8 中，String 内部使用 char 数组存储数据。 
+在 Java 9 之后，String 类的实现改用 byte 数组存储字符串，同时使用 `coder` 来标识使用了哪种编码。 
+
+#### Constant Pool
+
+.intern()，“abc”
+
+在 Java 7 之前，String Pool 被放在运行时常量池中，它属于永久代。而在 Java 7，String Pool 被移到堆中。这是因为永久代的空间有限，在大量使用字符串的场景下会导致 OutOfMemoryError 错误。 
+
+## Static
+
+**静态内部类**
+
+非静态内部类依赖于外部类的实例，也就是说需要先创建外部类实例，才能用这个实例去创建非静态内部类。而静态内部类不需要。
+ 静态内部类不能访问外部类的非静态的变量和方法。 
+
+**初始化顺序**
+
+静态变量和静态语句块优先于实例变量和普通语句块，静态变量和静态语句块的初始化顺序取决于它们在代码中的顺序。
+
+存在继承的情况下，初始化顺序为：
+
+- 父类（静态变量、静态语句块）
+- 子类（静态变量、静态语句块）
+- 父类（实例变量、普通语句块）
+- 父类（构造函数）
+- 子类（实例变量、普通语句块）
+- 子类（构造函数）
+
 ## 反射
+
+Class 和 java.lang.reflect 一起对反射提供了支持，java.lang.reflect 类库主要包含了以下三个类：
+
+- **Field** ：可以使用 get() 和 set() 方法读取和修改 Field 对象关联的字段；
+- **Method** ：可以使用 invoke() 方法调用与 Method 对象关联的方法；
+- **Constructor** ：可以用 Constructor 的 newInstance() 创建新的对象。
+
+**获取Class对象：**
+
+* Class<?> clazz = Class.forName(xxx.xxx.xxx)
+*  Class<?> clazz = int.class; 
+*  Class<?> clazz = str.getClass(); 
+
+**创建对象实例：**
+
+* clazz.newInstance()
+* Constructor constructor = clazz.getConstructor(XXX.class);
+  Object o = constructor.newInstance(param)
+
+**获取方法：**
+
+* getDeclaredMethods()
+* getMethods()
+
+setAccessable(true);
+
+**调用方法：**
+
+```java
+`public Object invoke(Object obj, Object... args)        throws IllegalAccessException, IllegalArgumentException,           InvocationTargetException`
+```
+
+## Collection
+
+### ArrayList
+
+* 默认大小10，底层为Object数组；
+*  添加元素时使用 ensureCapacityInternal() 方法来保证容量足够，如果不够时，需要使用 grow() 方法进行扩容，新容量的大小为 `oldCapacity + (oldCapacity >> 1)`，也就是旧容量的 1.5 倍。 
+*  扩容操作需要调用 `Arrays.copyOf()` 把原数组整个复制到新数组中 
+* 删除元素复杂度O(N)
+* ArrayList序列化只会序列化写入了元素的那一部分
+* Fail-Fast：modCount 用来记录 ArrayList 结构发生变化的次数。结构发生变化是指添加或者删除至少一个元素的所有操作，或者是调整内部数组的大小，仅仅只是设置元素的值不算结构发生变化。
+* 在进行序列化或者迭代等操作时，需要比较操作前后 modCount 是否改变，如果改变了需要抛出 ConcurrentModificationException。
+
+### Vector
+
+* synchronized修饰
+* 扩容默认增大一倍，也可在创建时传入每次扩容的大小
+*  `Collections.synchronizedList()` 得到一个线程安全的 ArrayList
+* concurrent 并发包下的 CopyOnWriteArrayList 类
+
+### CopyOnWriteArrayList
+
+* 读写分离，写操作在一个复制的数组上进行，读操作在原始数组中进行，读写分离。
+* 写操作加锁，防止并发写入时数据丢失。
+* 不适用与内存敏感，实时性高的场景
+
+### LinkedList
+
+*  基于双向链表实现，使用 Node 存储链表节点信息
+
+### HashMap
+
+* 底层 **transient** Entry[] table; 
+
+* 内部类 **static** **class** Entry<K,V> **implements** Map.Entry<K,V> 
+
+* JDK1.7头插法，JDK1.8尾插法
+
+* HashMap 允许插入键为 null 的键值对，HashMap 使用第 0 个桶存放键为 null 的键值对。 
+
+* 计算hash值：
+
+  ```java
+  final int hash(Object k) {
+      int h = hashSeed;
+      if (0 != h && k instanceof String) {
+          return sun.misc.Hashing.stringHash32((String) k);
+      }
+  
+      h ^= k.hashCode();
+  
+      // This function ensures that hashCodes that differ only by
+      // constant multiples at each bit position have a bounded
+      // number of collisions (approximately 8 at default load factor).
+      h ^= (h >>> 20) ^ (h >>> 12);
+      return h ^ (h >>> 7) ^ (h >>> 4);
+  }
+  
+  static int indexFor(int h, int length) {
+      return h & (length-1);
+  }
+  ```
+
+* 扩容：
+
+  * 默认初始大小 16
+  * 默认负载因子 0.75
+  * 最大容量 1<<30
+  * 每次扩容令capacity为原来的两倍
+
+* 计算初始容量：
+
+  ```java
+  static final int tableSizeFor(int cap) {
+      int n = cap - 1;
+      n |= n >>> 1;
+      n |= n >>> 2;
+      n |= n >>> 4;
+      n |= n >>> 8;
+      n |= n >>> 16;
+      return (n < 0) ? 1 : (n >= MAXIMUM_CAPACITY) ? MAXIMUM_CAPACITY : n + 1;
+  }
+  ```
+
+* 与 Hashtable 的比较
+
+  - Hashtable 使用 synchronized 来进行同步。
+  - HashMap 可以插入键为 null 的 Entry。
+  - HashMap 的迭代器是 fail-fast 迭代器。
+  - HashMap 不能保证随着时间的推移 Map 中的元素次序是不变的。
+
+### LinkedHashMap
+
+ accessOrder 决定了顺序，默认为 false，此时维护的是插入顺序。
+
+ **void** afterNodeAccess(Node<K,V> p) { } //每访问一个节点就将其移至链表尾部
+ **void** afterNodeInsertion(**boolean** evict) { } //删除表头的节点
+
+### WeakHashMap
+
+WeakHashMap继承自WeakReference，主要用于缓存，在下一次垃圾回收时会被回收。
+
+
 
 ## IO-BIO、NIO、AIO
 
@@ -649,13 +923,37 @@ epoll是一种当文件描述符的内核缓冲区非空的时候，发出可读
 
 (1)select==>时间复杂度O(n)
 
-它仅仅知道了，有I/O事件发生了，却并不知道是哪那几个流（可能有一个，多个，甚至全部），我们只能无差别轮询所有流，找出能读出数据，或者写入数据的流，对他们进行操作。所以**select具有O(n)的无差别轮询复杂度**，同时处理的流越多，无差别轮询时间就越长。
+ ![img](select.jpg) 
+
+fd_set(监听的端口个数)：32位机默认是1024个，64位机默认是2048。
+
+缺点：
+
+* 单进程可以打开fd有限制；
+* 对socket进行扫描时是线性扫描，即采用轮询的方法，效率较低；
+* 用户空间和内核空间的复制非常消耗资源；
 
 (2)poll==>时间复杂度O(n)
 
-poll本质上和select没有区别，它将用户传入的数组拷贝到内核空间，然后查询每个fd对应的设备状态， **但是它没有最大连接数的限制**，原因是它是基于链表来存储的.
+poll本质上和select没有区别，它将用户传入的数组拷贝到内核空间，然后查询每个fd对应的设备状态， **但是它没有最大连接数的限制**，原因是它是**基于链表来存储的**。
 
 (3)epoll==>时间复杂度O(1)
+
+ ![img](epoll.jpg) 
+
+* 执行epoll_create()时，创建了红黑树和就绪链表；
+
+* 执行epoll_ctl()时，如果增加socket句柄，则检查在红黑树中是否存在，存在立即返回，不存在则添加到树干上，然后向内核注册回调函数，用于当中断事件来临时向准备就绪链表中插入数据；
+
+* 执行epoll_wait()时立刻返回准备就绪链表里的数据即可。
+
+```C
+epoll_create(); // 创建监听红黑树
+epoll_ctl(); // 向书上添加监听fd
+epoll_wait(); // 监听
+有监听fd事件发送--->返回监听满足数组--->判断返回数组元素
+    --->lfd满足accept--->返回cfd---->read()读数据--->write()给客户端回应。
+```
 
 **epoll可以理解为event poll**，不同于忙轮询和无差别轮询，epoll会把哪个流发生了怎样的I/O事件通知我们。所以我们说epoll实际上是**事件驱动（每个事件关联上fd）**的，此时我们对这些流的操作都是有意义的。**（复杂度降低到了O(1)）**
 
