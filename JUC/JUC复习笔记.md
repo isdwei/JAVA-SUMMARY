@@ -1,4 +1,4 @@
-## JUC复习笔记（java.util.concurrent）
+JUC复习笔记（java.util.concurrent）
 
 ### 1. 并发的两个关键问题：线程间通信和线程间同步
 
@@ -41,7 +41,7 @@ C(指令级并行重排序)--> D(内存系统重排序)
 D(内存系统重排序)-->E(最终的指令序列)
 ```
 
-编译器和处理器不会对存在数据依赖关系的操作做重排序，因为这种重排序会改变执行结果。**在单线程程序中，对存在控制依赖的操作重排序不会改变执行结果；但在多线程程序中，对存在控制 依赖的操作重排序，可能会改变程序的执行结果。**
+编译器和处理器不会对存在数据依赖关系的操作做重排序，因为这种重排序会改变执行结果。**在单线程程序中，对存在控制依赖的操作重排序不会改变执行结果；但在多线程程序中，对存在控制依赖的操作重排序，可能会改变程序的执行结果。**
 
 对于编译器，JMM的编译器会禁止特定类型的编译器重排序。**对于处理器重排序，JMM的处理器重排序规则会要求Java编译器在生成指令序列时，插入特定的内存屏障指令，从而禁止特定类型的处理器重排序。**
 
@@ -63,7 +63,7 @@ D(内存系统重排序)-->E(最终的指令序列)
 
 #### 4.2 Java实现原子操作（锁和循环CAS）
 
-##### 4.2.1 循环CAS机制(Compare and Swap)**  自旋CAS：循环进行CAS操作直至成功为止
+##### 4.2.1 循环CAS机制(Compare and Swap)  自旋CAS：循环进行CAS操作直至成功为止
 
 CAS (Compare-And-Swap) 是一种硬件对并发的支持，针对多处理器操作而设计的处理器中的一种特殊指令，用于管理对共享数据的并发访问。CAS 是一种无锁的非阻塞算法的实现。  
 
@@ -855,7 +855,7 @@ public enum Singleton {
   * LockSupport.park()    Java 并发包中的锁，都是基于LockSupport 对象实现的 
 
 * 从 RUNNABLE 到 TERMINATED 状态：
-  * interrupt() （通知线程，线程有机会执行一些后续操作，同时也可以无视这个通知）stop() （立即杀死线程，若未释放锁会造成死锁，弃用）
+  * interrupt() （通知线程，线程有机会执行一些后续操作，同时也可以无视这个通知）stop() （立即杀死线程，**若未释放锁会造成死锁**，弃用）
   * 执行完成
   * 异常中断
 
@@ -2066,3 +2066,132 @@ public class CallableDemo {
 }
 ```
 
+
+
+### 19. ThreadLocal
+
+#### 19.1 ThreadLocal简介
+
+ThreadLocal不是Thread，是一个线程内部的数据存储类，通过它可以在指定的线程中存储数据，对数据存储后，只有在线程中才可以获取到存储的数据，对于其他线程来说是无法获取到数据。ThreadLocal和Synchonized都用于解决多线程并发访问。但是ThreadLocal与synchronized有本质的区别。
+
+#### 19.2 ThreadLocal与synchronized的比较
+
+**Synchronized用于线程间的数据共享，而ThreadLocal则用于线程间的数据隔离。**在同步机制中，通过对象的锁机制保证同一时间只有一个线程访问变量。这时该变量是多个线程共享的，使用同步机制要求程序慎密地分析什么时候对变量进行读写，什么时候需要锁定某个对象，什么时候释放对象锁等繁杂的问题，程序设计和编写难度相对较大。ThreadLocal是线程局部变量，是一种多线程间并发访问变量的解决方案。和synchronized等加锁的方式不同，ThreadLocal完全不提供锁，而使用以空间换时间的方式，为每个线程提供变量的独立副本，以保证线程的安全。
+
+```java
+public class ThreadLocalTest {
+    private static ThreadLocal<String> tl = new ThreadLocal<>();
+    public static void main(String[] args) {
+        new Thread(()->{
+            for (int i = 0; i < 100; i++) {
+                tl.set(i+"");
+                System.out.println(Thread.currentThread().getName()+"==="+tl.get());
+            }
+        },"thread-1").start();
+        new Thread(()->{
+            for (int i = 0; i < 100; i++) {
+                System.out.println(Thread.currentThread().getName()+"==="+tl.get());            }
+        },"thread-2").start();
+    }
+}
+```
+
+通过测试类我们可以看出，在不同的线程中，访问的是同一个ThreadLocal对象，但是获取的值却是不一样的。
+
+#### 19.3 ThreadLocal原理
+
+* 首先Thread类中有一个ThreadLocalMap成员变量threadLocals
+
+  ```java
+  /* ThreadLocal values pertaining to this thread. This map is maintained 
+   * by the ThreadLocal class.
+   */
+  ThreadLocal.ThreadLocalMap threadLocals = null;
+  ```
+
+* 当我们在程序中调用`tl.set(i+"");`时，会进入ThreadLocal类的set方法
+
+  ```java
+  	public void set(T value) {
+          Thread t = Thread.currentThread();//首先获取当前线程
+          ThreadLocalMap map = getMap(t);//找到这个线程中持有的ThreadMaps，赋值给map
+          if (map != null)
+              map.set(this, value);//如果map不为空，则将tl作为键，value作为值，插入
+          else
+              createMap(t, value);//map为空，则传入线程与值，初始化
+      }
+  ```
+
+* 我们要弄清楚ThreadLocal是如何做到每一个线程维护一个变量的，那就必须先弄清楚ThreadLocal.ThreadLocalMap这个内部类。
+
+```java
+    static class ThreadLocalMap {
+
+        static class Entry extends WeakReference<ThreadLocal<?>> {
+            /** The value associated with this ThreadLocal. */
+            Object value;
+            Entry(ThreadLocal<?> k, Object v) {
+                super(k);
+                value = v;
+            }
+        }
+    }
+```
+
+Entry是一个包含key和value的一个对象，ThreadLocal<?>为key，要保存的线程局部变量的值为value，通过`super(k);`调用 WeakReference的构造函数，将ThreadLocal对象变成一个弱引用的对象，这样做是为了在线程销毁的时候，对应的实体会被回收，不会出现内存泄漏。
+
+**当仅仅只有ThreadLocalMap中的Entry的key指向ThreadLocal的时候，ThreadLocal会进行回收的！！！**
+
+ThreadLocal被垃圾回收后，在ThreadLocalMap里对应的Entry的键值会变成null，但是Entry是强引用，那么Entry里面存储的Object，并没有办法进行回收，所以ThreadLocalMap 做了一些额外的回收工作。
+
+**把ThreadLocal定义为static还有一个好处就是，由于ThreadLocal有强引用在，那么在ThreadLocalMap里对应的Entry的键会永远存在，那么执行remove的时候就可以正确进行定位到并且删除！！！** 
+
+#### 19.4 Thread和ThreadLocalMap的关系
+
+简单来说：每一个Thread中都保存着自己的一个ThreadLocalMap，一个ThreadLoaclMap中可以有多个ThreadLocal对象，也可以说同一个线程下不同的ThreadLocal对象共用一个ThreadLocalMap，其中一个ThreadLocal对象对应着map中的一个Entry（即ThreadLocalMap的key是ThreadLocal的对象，value是独享数据）
+
+#### 19.5 ThreadLocal可能引起的OOM内存溢出问题简要分析
+
+刚刚我们也说了，ThreadLocal可能导致内存泄漏，那么具体的原因是为什么呢？
+
+因为ThreadLocal的原理是操作**Thread内部的一个ThreadLocalMap，这个Map的Entry继承了WeakReference**，即Entry中的key是弱引用。java中的弱引用会在下次GC的时候会被回收掉，所以key会被回收，**但是value并不会被回收掉**。这样导致key为null，value有值。线程如果销毁，value也会被回收，但是如果在线程池中，线程执行完之后是返回线程池中，并不是销毁，同时**GC的时候把key清除了，那么这个value永远不会被清除**，久而久之就会内存溢出。所以jdk开发者针对这一情况也做了优化。也就是我们上面说的expungeStaleEntry()这个方法。但是这样做也只能说尽可能避免内存泄漏， 但并不会完全解决内存泄漏这个问题。比如极端情况下我们只创建ThreadLocal但不调用set、get、remove方法等。
+
+##### 怎么解决这个内存泄漏问题
+
+**JDK本身的优化：**
+
+set和get方法做了key==null的擦除value的操作 `expungeStaleEntry(i);` 
+
+**开发者优化：**
+
+每次使用完ThreadLocal都调用它的remove()方法清除数据。因为它的remove方法会主动将当前的key和value(Entry)进行清除。
+
+##### 弱引用如果有内存泄漏危险，那为什么key不设置为强引用
+
+强引用更不行，因为如果key是强引用，当TreadLocal对象要被回收时。但是TreadLocalMap中依然保持这个ThreadLocal对象的强引用，而ThreadLocalMap又被当前线程Thread强引用，也就是说当线程不销毁的时候，ThreadLocalMap就不会被回收，从而导致ThreadLocal也不会被回收，除非手动删除key
+
+弱引用会在下一次GC的时候强制回收。虽然也会导致内存溢出，但是最起码也有set、get、removede方法操作对null key进行擦除的补救措施， 方案上略胜一筹。
+
+#### 19.6 总结
+
+（1）ThreadLocal只是操作Thread中的ThreadLocalMap对象的集合；
+（2）ThreadLocalMap变量属于线程的内部属性，不同的线程拥有完全不同的ThreadLocalMap变量；
+（3）线程中的ThreadLocalMap变量的值是在ThreadLocal对象进行set或者get操作时创建的；
+（4）使用当前线程的ThreadLocalMap的关键在于使用当前的ThreadLocal的实例作为key来存储value值；
+（5） ThreadLocal模式至少从两个方面完成了数据访问隔离，即纵向隔离(线程与线程之间的ThreadLocalMap不同)和横向隔离(不同的ThreadLocal实例之间的互相隔离)；
+（6）一个线程中的所有的局部变量其实存储在该线程自己的同一个map属性中；
+（7）线程死亡时，线程局部变量会自动回收内存；
+（8）线程局部变量时通过一个 Entry 保存在map中，该Entry 的key是一个 WeakReference包装的ThreadLocal, value为线程局部变量，key 到 value 的映射是通过：ThreadLocal.threadLocalHashCode & (INITIAL_CAPACITY - 1) 来完成的；
+（9）当线程拥有的局部变量超过了容量的2/3(没有扩大容量时是10个)，会涉及到ThreadLocalMap中Entry的回收；
+
+对于多线程资源共享的问题，同步机制采用了“以时间换空间”的方式，而ThreadLocal采用了“以空间换时间”的方式。前者仅提供一份变量，让不同的线程排队访问，而后者为每一个线程都提供了一份变量，因此可以同时访问而互不影响。
+
+##### spring中ThreadLocal的应用
+
+ThreadLocal天生为解决相同变量的访问冲突问题， 所以这个对于spring的默认单例bean的多线程访问是一个完美的解决方案。spring也确实是用了ThreadLocal来处理多线程下相同变量并发的线程安全问题。
+
+spring 如何保证数据库事务在同一个连接下执行的
+
+> 要想实现jdbc事务， 就必须是在同一个连接对象中操作， 多个连接下事务就会不可控， 需要借助分布式事务完成。那spring 如何保证数据库事务在同一个连接下执行的呢？
+
+**DataSourceTransactionManager** 是spring的数据源事务管理器， 它会在你调用getConnection()的时候从数据库连接池中获取一个connection， 然后将其与ThreadLocal绑定， 事务完成后解除绑定。这样就保证了事务在同一连接下完成。

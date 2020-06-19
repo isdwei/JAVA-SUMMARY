@@ -80,6 +80,17 @@ RDD 在 Lineage 依赖方面分为两种 Narrow Dependencies 与 Wide Dependenci
 
 因为 RDD 的分区特性，所以其天然支持并行处理的特性。即不同节点上的数据可以分别被处理，然后生成一个新的 RDD。
 
+**RDD的弹性**体现在：
+
+1. 自动进行内存和磁盘切换
+2. 基于lineage的高效容错
+3. task如果失败会特定次数的重试
+4. stage如果失败会自动进行特定次数的重试，而且只会只计算失败的分片
+5. checkpoint【每次对RDD操作都会产生新的RDD，如果链条比较长，计算比较笨重，就把数据放在硬盘中】和persist 【内存或磁盘中对数据进行复用】(检查点、持久化)
+6. 数据调度弹性：DAG TASK 和资源管理无关
+7. 数据分片的高度弹性repartion
+   
+
 #### Job
 
 根据行动算子划分 
@@ -154,7 +165,7 @@ mapValues(Function)
 flatMapValues(Function)
 
 //RDD[K,V] => RDD[K,C]
-combineByKey(createCombiner,mergerCombiner,partitioner,mapSideCombiner?,serializer)
+combineByKey(createCombiner,mergerCombiner,partitioner,mapSideCombiner,serializer)
 flodByKey(zeroValue,partitioner)
 reduceByKey(partitioner,function)
 groupByKey(partitioner)
@@ -187,7 +198,7 @@ checkpoint//持久化在HDFS，会切断RDD的血缘关系
 	//维护过长的血缘关系会使RDD容错重算的成本非常高
 ```
 
-#### 行动算子sghenxu
+#### 行动算子
 
 Spark中的每个行动算子都会触发Spark的一次调度并返回响应的结果。
 
@@ -806,4 +817,140 @@ Spark提供的Accumulator主要用于多个节点对一个变量进行共享性�
 Accumulator的底层原理如下图所示：
 ![累加器原理](E:\JAVA-SUMMARY\Spark\5e1c41f80001b04810280669.jpg)
 
+## 面试题
 
+### Spark 内存溢出 处理 及 优化
+
+#### 1. map过程产生大量对象导致内存溢出
+
+这种溢出的原因是在单个map中产生了大量的对象导致的。
+
+例如：rdd.map(x=>for(i <- 1 to 10000) yield i.toString)，这个操作在rdd中，每个对象都产生了10000个对象，这肯定很容易产生内存溢出的问题。针对这种问题，在不增加内存的情况下，可以通过减少每个Task的大小，以便达到每个Task即使产生大量的对象Executor的内存也能够装得下。具体做法可以在会产生大量对象的map操作之前调用repartition方法，分区成更小的块传入map。例如：rdd.repartition(10000).map(x=>for(i <- 1 to 10000) yield i.toString)。 
+面对这种问题注意，不能使用rdd.coalesce方法，这个方法只能减少分区，不能增加分区，不会有shuffle的过程。
+
+#### 2.数据不平衡导致内存溢出
+
+数据不平衡除了有可能导致内存溢出外，也有可能导致性能的问题，解决方法和上面说的类似，就是调用repartition重新分区。这里就不再累赘了。
+
+#### 3.coalesce调用导致内存溢出
+
+这是我最近才遇到的一个问题，因为hdfs中不适合存小问题，所以Spark计算后如果产生的文件太小，我们会调用coalesce合并文件再存入hdfs中。但是这会导致一个问题，例如在coalesce之前有100个文件，这也意味着能够有100个Task，现在调用coalesce(10)，最后只产生10个文件，因为coalesce并不是shuffle操作，这意味着coalesce并不是按照我原本想的那样先执行100个Task，再将Task的执行结果合并成10个，而是从头到位只有10个Task在执行，原本100个文件是分开执行的，现在每个Task同时一次读取10个文件，使用的内存是原来的10倍，这导致了OOM。解决这个问题的方法是令程序按照我们想的先执行100个Task再将结果合并成10个文件，这个问题同样可以通过repartition解决，调用repartition(10)，因为这就有一个shuffle的过程，shuffle前后是两个Stage，一个100个分区，一个是10个分区，就能按照我们的想法执行。
+
+#### 4.shuffle后内存溢出
+
+shuffle内存溢出的情况可以说都是shuffle后，单个文件过大导致的。在Spark中，join，reduceByKey这一类型的过程，都会有shuffle的过程，在shuffle的使用，需要传入一个partitioner，大部分Spark中的shuffle操作，默认的partitioner都是HashPatitioner，默认值是父RDD中最大的分区数,这个参数通过spark.default.parallelism控制(在spark-sql中用spark.sql.shuffle.partitions) ， spark.default.parallelism参数只对HashPartitioner有效，所以如果是别的Partitioner或者自己实现的Partitioner就不能使用spark.default.parallelism这个参数来控制shuffle的并发量了。如果是别的partitioner导致的shuffle内存溢出，就需要从partitioner的代码增加partitions的数量。
+
+#### 5. standalone模式下资源分配不均匀导致内存溢出
+
+在standalone的模式下如果配置了–total-executor-cores 和 –executor-memory 这两个参数，但是没有配置–executor-cores这个参数的话，就有可能导致，每个Executor的memory是一样的，但是cores的数量不同，那么在cores数量多的Executor中，由于能够同时执行多个Task，就容易导致内存溢出的情况。这种情况的解决方法就是同时配置–executor-cores或者spark.executor.cores参数，确保Executor资源分配均匀。
+
+#### 6.在RDD中，共用对象能够减少OOM的情况
+
+这个比较特殊，这里说记录一下，遇到过一种情况，类似这样rdd.flatMap(x=>for(i <- 1 to 1000) yield (“key”,”value”))导致OOM，但是在同样的情况下，使用rdd.flatMap(x=>for(i <- 1 to 1000) yield “key”+”value”)就不会有OOM的问题，这是因为每次(“key”,”value”)都产生一个Tuple对象，而”key”+”value”，不管多少个，都只有一个对象，指向常量池。具体测试如下： 
+![这里写图片描述](https://img-blog.csdn.net/20180109175545402?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvenVvbG92ZWZ1/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast)
+
+这个例子说明(“key”,”value”)和(“key”,”value”)在内存中是存在不同位置的,也就是存了两份,但是”key”+”value”虽然出现了两次,但是只存了一份,在同一个地址,这用到了JVM常量池的知识。于是乎,如果RDD中有大量的重复数据,或者Array中需要存大量重复数据的时候我们都可以将重复数据转化为String,能够有效的减少内存使用.
+
+#### 优化
+
+##### 1. 使用mapPartitions代替大部分map操作，或者连续使用的map操作
+
+这里需要稍微讲一下RDD和DataFrame的区别。RDD强调的是不可变对象，每个RDD都是不可变的，当调用RDD的map类型操作的时候，都是产生一个新的对象，这就导致了一个问题，如果对一个RDD调用大量的map类型操作的话，每个map操作会产生一个到多个RDD对象，这虽然不一定会导致内存溢出，但是会产生大量的中间数据，增加了gc操作。另外RDD在调用action操作的时候，会出发Stage的划分，但是在每个Stage内部可优化的部分是不会进行优化的，例如rdd.map(*+1).map(*+1)，这个操作在数值型RDD中是等价于rdd.map(_+2)的，但是RDD内部不会对这个过程进行优化。DataFrame则不同，DataFrame由于有类型信息所以是可变的，并且在可以使用sql的程序中，都有除了解释器外，都会有一个sql优化器，DataFrame也不例外，有一个优化器Catalyst，具体介绍看后面参考的文章。
+
+上面说到的这些RDD的弊端，有一部分就可以使用mapPartitions进行优化，mapPartitions可以同时替代rdd.map,rdd.filter,rdd.flatMap的作用，所以在长操作中，可以在mapPartitons中将RDD大量的操作写在一起，避免产生大量的中间rdd对象，另外是mapPartitions在一个partition中可以复用可变类型，这也能够避免频繁的创建新对象。使用mapPartitions的弊端就是牺牲了代码的易读性。
+
+##### 2. broadcast join和普通join
+
+在大数据分布式系统中，大量数据的移动对性能的影响也是巨大的。基于这个思想，在两个RDD进行join操作的时候，如果其中一个RDD相对小很多，可以将小的RDD进行collect操作然后设置为broadcast变量，这样做之后，另一个RDD就可以使用map操作进行join，这样能够有效的减少相对大很多的那个RDD的数据移动。
+
+##### 3. 先filter在join
+
+这个就是谓词下推，这个很显然，filter之后再join，shuffle的数据量会减少，这里提一点是spark-sql的优化器已经对这部分有优化了，不需要用户显示的操作，个人实现rdd的计算的时候需要注意这个。
+
+##### 4. partitonBy优化
+
+这一部分在另一篇文章[《spark partitioner使用技巧 》](http://blog.csdn.net/yhb315279058/article/details/50955282)有详细介绍，这里不说了。
+
+##### 5. combineByKey的使用：
+
+这个操作在Map-Reduce中也有，这里举个例子：rdd.groupByKey().mapValue(_.sum)比rdd.reduceByKey的效率低，原因如下两幅图所示(网上盗来的，侵删) 
+![这里写图片描述](https://img-blog.csdn.net/20180110155008879?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvenVvbG92ZWZ1/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast)
+
+![这里写图片描述](https://img-blog.csdn.net/20180110155018775?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvenVvbG92ZWZ1/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast)
+
+上下两幅图的区别就是上面那幅有combineByKey的过程减少了shuffle的数据量，下面的没有。combineByKey是key-value型rdd自带的API，可以直接使用。
+
+##### 6. 内存不足时的优化
+
+在内存不足的使用，使用rdd.persist(StorageLevel.MEMORY_AND_DISK_SER)代替rdd.cache(): 
+rdd.cache()和rdd.persist(Storage.MEMORY_ONLY)是等价的，在内存不足的时候rdd.cache()的数据会丢失，再次使用的时候会重算，而rdd.persist(StorageLevel.MEMORY_AND_DISK_SER)在内存不足的时候会存储在磁盘，避免重算，只是消耗点IO时间。
+
+##### 7. 在spark使用hbase的时候，spark和hbase搭建在同一个集群：
+
+在spark结合hbase的使用中，spark和hbase最好搭建在同一个集群上上，或者spark的集群节点能够覆盖hbase的所有节点。hbase中的数据存储在HFile中，通常单个HFile都会比较大，另外Spark在读取Hbase的数据的时候，不是按照一个HFile对应一个RDD的分区，而是一个region对应一个RDD分区。所以在Spark读取Hbase的数据时，通常单个RDD都会比较大，如果不是搭建在同一个集群，数据移动会耗费很多的时间。
+
+#### 参数优化部分
+
+##### 8. spark.driver.memory (default 1g)
+
+这个参数用来设置Driver的内存。在Spark程序中，SparkContext，DAGScheduler都是运行在Driver端的。对应rdd的Stage切分也是在Driver端运行，如果用户自己写的程序有过多的步骤，切分出过多的Stage，这部分信息消耗的是Driver的内存，这个时候就需要调大Driver的内存。
+
+##### 9.spark.rdd.compress (default false)
+
+这个参数在内存吃紧的时候，又需要persist数据有良好的性能，就可以设置这个参数为true，这样在使用persist(StorageLevel.MEMORY_ONLY_SER)的时候，就能够压缩内存中的rdd数据。减少内存消耗，就是在使用的时候会占用CPU的解压时间。
+
+##### 10.spark.serializer (default org.apache.spark.serializer.JavaSerializer )
+
+建议设置为 org.apache.spark.serializer.KryoSerializer，因为KryoSerializer比JavaSerializer快，但是有可能会有些Object会序列化失败，这个时候就需要显示的对序列化失败的类进行KryoSerializer的注册，这个时候要配置spark.kryo.registrator参数或者使用参照如下代码： 
+valconf=newSparkConf().setMaster(…).setAppName(…) 
+conf.registerKryoClasses(Array(classOf[MyClass1],classOf[MyClass2])) 
+valsc =newSparkContext(conf)
+
+##### 11.spark.memory.storageFraction (default 0.5)
+
+这个参数设置内存表示 Executor内存中 storage/(storage+execution)，虽然spark-1.6.0+的版本内存storage和execution的内存已经是可以互相借用的了，但是借用和赎回也是需要消耗性能的，所以如果明知道程序中storage是多是少就可以调节一下这个参数。
+
+##### 12. spark.locality.wait (default 3s)
+
+spark中有4中本地化执行level，PROCESS_LOCAL->NODE_LOCAL->RACK_LOCAL->ANY,一个task执行完，等待spark.locality.wait时间如果，第一次等待PROCESS的Task到达，如果没有，等待任务的等级下调到NODE再等待spark.locality.wait时间，依次类推，直到ANY。分布式系统是否能够很好的执行本地文件对性能的影响也是很大的。如果RDD的每个分区数据比较多，每个分区处理时间过长，就应该把 spark.locality.wait 适当调大一点，让Task能够有更多的时间等待本地数据。特别是在使用persist或者cache后，这两个操作过后，在本地机器调用内存中保存的数据效率会很高，但是如果需要跨机器传输内存中的数据，效率就会很低。
+
+##### 13.spark.speculation (default false)
+
+一个大的集群中，每个节点的性能会有差异，spark.speculation这个参数表示空闲的资源节点会不会尝试执行还在运行，并且运行时间过长的Task，避免单个节点运行速度过慢导致整个任务卡在一个节点上。这个参数最好设置为true。与之相配合可以一起设置的参数有spark.speculation.×开头的参数。参考中有文章详细说明这个参数。
+
+### 7. spark数据倾斜怎么办？
+
+### 8. RDD与DataFrame区别
+
+RDD是分布式的Java对象的集合。DataFrame是分布式的Row对象的集合。
+而对于DataFrame来说，它不仅可以知道里面的数据，而且它还可以知道里面的schema信息。
+
+因为每一列的数据类型是一样的，因此可以采用更好的压缩，这样的话整个DF存储所占用的东西必然是比RDD要少很多的（这也是DF的优点）
+
+RDD[Person]虽然以Person为类型参数，但Spark框架本身不了解Person类的内部结构。而DataFrame却提供了详细的结构信息，使得Spark SQL可以清楚地知道该数据集中包含哪些列，每列的名称和类型各是什么。DataFrame多了数据的结构信息，即schema。
+
+DataFrame除了提供了比RDD更丰富的算子以外，更重要的特点是提升执行效率、减少数据读取以及执行计划的优化，比如filter下推、裁剪等。
+
+##### 提升执行效率
+
+**RDD** API是函数式的，强调**不变性**，在大部分场景下倾向于创建新对象而不是修改老对象。这一特点虽然带来了干净整洁的API，却也使得Spark应用程序**在运行期倾向于创建大量临时对象，对GC造成压力**。在现有RDD API的基础之上，我们固然可以利用mapPartitions方法来重载RDD单个分片内的数据创建方式，用复用可变对象的方式来减小对象分配和GC的开销，但这牺牲了代码的可读性，而且要求开发者对Spark运行时机制有一定的了解，门槛较高。另一方面，Spark SQL在框架内部已经**在各种可能的情况下尽量重用对象**，这样做虽然在内部会打破了不变性，但**在将数据返回给用户时，还会重新转为不可变数据**。利用 DataFrame API进行开发，可以免费地享受到这些优化效果。
+
+##### 减少数据读取
+
+分析大数据，最快的方法就是——忽略它。这里的“忽略”并不是熟视无睹，而是根据查询条件进行恰当的剪枝。
+
+上文讨论分区表时提到的分区剪 枝便是其中一种——当查询的过滤条件中涉及到分区列时，我们可以根据查询条件**剪掉肯定不包含目标数据的分区目录**，从而减少IO。
+
+对于一些“智能”数据格 式，Spark SQL还可以根据数据文件中附带的统计信息来进行剪枝。简单来说，在这类数据格式中，数据是分段保存的，每段数据都带有最大值、最小值、null值数量等 一些基本的统计信息。当统计信息表名某一数据段肯定不包括符合查询条件的目标数据时，该数据段就可以直接跳过（例如某整数列a某段的最大值为100，而查询条件要求a > 200）。
+
+此外，Spark SQL也可以充分利用RCFile、ORC、Parquet等列式存储格式的优势，仅扫描查询真正涉及的列，忽略其余列的数据。
+
+##### **执行优化**
+
+人口数据分析示例
+
+为了说明查询优化，我们来看上图展示的人口数据分析的示例。图中构造了两个DataFrame，将它们join之后又做了一次filter操作。如果原封不动地执行这个执行计划，最终的执行效率是不高的。因为join是一个代价较大的操作，也可能会产生一个较大的数据集。如果我们能将filter下推到 join下方，先对DataFrame进行过滤，再join过滤后的较小的结果集，便可以有效缩短执行时间。而Spark SQL的查询优化器正是这样做的。简而言之，逻辑查询计划优化就是一个利用基于关系代数的等价变换，将高成本的操作替换为低成本操作的过程。
+
+得到的优化执行计划在转换成物 理执行计划的过程中，还可以根据具体的数据源的特性将过滤条件下推至数据源内。最右侧的物理执行计划中Filter之所以消失不见，就是因为溶入了用于执行最终的读取操作的表扫描节点内。
+
+对于普通开发者而言，查询优化 器的意义在于，即便是经验并不丰富的程序员写出的次优的查询，也可以被尽量转换为高效的形式予以执行。

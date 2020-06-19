@@ -87,7 +87,7 @@
 
 * 强引用：不会被回收，Object obj = new Object()；
 
-* 软引用：有用但并非必须，在即将OOM时会被回收，Java提供SoftReference类实现软引用；
+* 软引用：有用但并非必须，在即将OOM时会被回收，Java提供SoftReference类实现软引用，缓存；
 
 * 弱引用：只能存活到下一次垃圾回收之前；
 
@@ -346,7 +346,44 @@ Stop The World（停顿类型STW）
   回到最开始的问题，那个**停顿类型就是STW**，至于**有GC**和**Full GC**之分，还有**Full GC (System)**。个人认为主要是Full GC时STW的时间相对GC来说时间很长，因为Full GC针对整个堆以及永久代的，因此整个GC的范围大大增加；还有就是他的回收算法就是我们之前说过的“标记–清除–整理”，这里也会损耗一定的时间。**所以我们在优化JVM的时候，减少Full GC的次数也是经常用到的办法。** 
   本文篇幅较短，主要为下一章要讲的收集器打下基石，各位只要知道GC之前还有STW这一步骤和知道OopMap以及安全点的存在即可。
 
+##### 12. JVM调优
 
+* -XX：+/- boolean类型参数，表示开启或关闭某个类型参数。
+
+  例如：-XX：+PrintGCDetails
+
+  ​			-XX：+UseSerialGC
+
+* -XX：属性key=属性值value
+
+  例如：-XX：MetaspaceSize=128m
+
+  ​			-XX：MaxTenuringThreshold=15
+
+  两个经典参数 -Xms 即 -XX：InitialHeapSize
+
+  ​						-Xmx 即 -XX：MaxHeapSize 
+
+  ​						-Xss 即 -XX：ThreadStackSize
+
+* 生产环境服务器性能变慢
+  * 整机 top
+  * CPU vmstat
+  * 内存 free
+  * 磁盘IO iostat   网络IO  ifstat
+
+* CPU占用过高怎么办
+  * 首先top看CPU占比最高的
+  * ps -ef 或 jps 进一步定位
+  * 定位到具体的线程或代码 ps -mp 进程 -o THREAD,tis,time
+  * jstack 进程ID | grep tid(16进制线程ID) -A60
+
+##### 13. JVM工具
+
+* jinfo -flag 配置项 进程编号 //查某个JVM中进程的配置参数
+* jps 虚拟机进程状况工具
+* jmap 内存映像工具
+* jstat 统计信息监控工具
 
 
 
