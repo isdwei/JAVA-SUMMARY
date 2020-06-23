@@ -491,6 +491,19 @@ MVCC 是一种并发控制的方法，一般在数据库管理系统中，实现
 
 隔离级别越高并发度越差，性能越差，虽然MySQL默认的是RR，但是如果业务不需要严格的没有幻读现象，是可以降低为RC的或修改配置innodb_locks_unsafe_for_binlog为1 来避免Gap Lock的。 注意有的时候MySQL会自动对Next-Key Lock进行优化，退化为只加Record Lock，不加Gap Lock，如相关条件字段为主键时直接加Record Lock。
 
+#### 6.3 快照读&当前读
+
+##### select 快照读
+
+  当你执行select *之后，在A与B事务中都会返回4条一样的数据，这是不用想的，当执行select的时候，innodb默认会执行快照读，相当于就是给你目前的状态找了一张照片，以后执行select 的时候就会返回当前照片里面的数据，当其他事务提交了也对你不造成影响，和你没关系，这就实现了可重复读了，那这个照片是什么时候生成的呢？不是开启事务的时候，是当你第一次执行select的时候，也就是说，当A开启了事务，然后没有执行任何操作，这时候B insert了一条数据然后commit，这时候A执行 select，那么返回的数据中就会有B添加的那条数据......之后无论再有其他事务commit都没有关系，因为照片已经生成了，而且不会再生成了，以后都会参考这张照片。
+
+##### update、insert、delete 当前读
+
+  当你执行这几个操作的时候默认会执行当前读，也就是会读取最新的记录，也就是别的事务提交的数据你也可以看到，这样很好理解啊，假设你要update一个记录，另一个事务已经delete这条数据并且commit了，这样不是会产生冲突吗，所以你update的时候肯定要知道最新的信息啊。
+
+  我在这里介绍一下update的过程吧，首先会执行当前读，然后把返回的数据加锁，之后执行update。加锁是防止别的事务在这个时候对这条记录做什么，默认加的是排他锁，也就是你读都不可以，这样就可以保证数据不会出错了。但注意一点，就算你这里加了写锁，别的事务也还是能访问的，是不是很奇怪？数据库采取了一致性非锁定读，别的事务会去读取一个快照数据。
+  innodb默认隔离级别是RR， 是通过MVCC来实现了，读方式有两种，执行select的时候是快照读，其余是当前读，所以，MVCC不能根本上解决幻读的情况
+
 ### 7. 分库分表
 
 * **垂直切分**： 垂直分库就是根据业务耦合性，将关联度低的不同表存储在不同的数据库。做法与大系统拆分为多个小系统类似，按业务分类进行独立划分。与"微服务治理"的做法相似，每个微服务使用单独的一个数据库。 
@@ -665,3 +678,34 @@ order by in.class, in.score desc;
 * 第二范式：有主键，非主键字段依赖主键; 
 * 第三范式：非主键字段不能相互依赖，表与表之间的关联全靠主键
 
+#### 8.4 SQL
+
+作者：没有奇迹
+链接：https://www.nowcoder.com/discuss/384453?type=2&order=0&pos=12&page=1&channel=666&source_id=discuss_tag
+来源：牛客网
+
+6.行列转换
+SELECT uid,vid FROM (SELECT uid,v_list FROM tablename )t lateral VIEW explode(t.v_list)k AS vid 
+8.用sql求两两组合，输出样例：ab,ac,bc 
+ SELECT CONCAT(s1.name,s2.name) FROM tableName s1 JOIN tb s2 ON s1.id<s2.id 
+
+给一个表Id、id_class、student-id\course_id\score;
+
+SQL求所有学生总分TOP3
+
+求每个科目均分
+
+求每个班级的最高分
+
+
+
+作者：王波波
+https://www.nowcoder.com/discuss/402043?type=2&order=0&pos=4&page=1&channel=666&source_id=discuss_tag来源：牛客网
+
+  select a.sales
+ from t1 a
+ left join t1 b on a.sales=b.sales
+  and datediff(a.date,1)=b.date
+ left join t1 c on b.sales=b.sales
+  and datediff(b.date,1)=c.date
+ where c.sales is not null
