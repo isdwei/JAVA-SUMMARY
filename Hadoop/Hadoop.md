@@ -685,91 +685,11 @@ HDFS小文件解决方案
 
 ##### 3.5.2 join
 
-MapJoin：驱动中加入缓存，重新setup阶段保存小表，性能更优
+MapJoin：驱动中加入缓存，重写setup阶段保存小表，性能更优
 
 ReduceJoin：连接键作为key，性能较差
 
 
-
-
-
- 
-
-Yarn
-
-hadoop1.x hadoop2.x异同
-
-加入yarn解决了资源调度的问题
-
-加入了对zookeeper的支持实现了比较高的高可用
-
-yarn的优势
-
-解决用户程序与yarn框架的完全解耦，yarn上可以运行各种分布式运算程序
-
-MR作业job的提交流程
-
-![img](file:///C:/Users/weitu/AppData/Local/Temp/msohtmlclip1/01/clip_image014.png)
-
-![img](file:///C:/Users/weitu/AppData/Local/Temp/msohtmlclip1/01/clip_image016.png)
-
-
-
-资源调度器
-
-Hadoop作业调度器主要有三种：FIFO、Capacity Scheduler和Fair Scheduler。
-
-Hadoop2.7.2默认的资源调度器是Capacity Scheduler。（容量调度器）
-
-支持多队列，每个队列分配一定的资源，每个队列FIFO。
-
-MR推测执行原理
-
-![img](file:///C:/Users/weitu/AppData/Local/Temp/msohtmlclip1/01/clip_image018.png)
-
-不能启用推测执行机制情况
-
-  （1）任务间存在严重的负载倾斜；
-
-  （2）特殊任务，比如任务向数据库中写数据。
-
-Mapreduce优化
-
-Mapreduce跑的慢的原因
-
-1.计算机性能
-
-2.I/O操作优化：数据倾斜，map/reduce任务数设计不合理，map运行时间太长，小文件过多，大量不可分的超大文件，spill次数过多，merge次数过多
-
-Mapreduce优化方法
-
-MapReduce优化方法主要从六个方面考虑：数据输入、Map阶段、Reduce阶段、IO传输、数据倾斜问题和常用的调优参数。
-
-数据输入：合并小文件，CombineTextInputFormat输入
-
-Map：减少Spill次数（调整环形内存大小和触发spill的阈值），减少Merge次数（增大一次Merge的文件数），进行Combiner处理；
-
-Reduce：合理设置Map，Reduce任务数，设置Map，Reduce共存，规避使用reduce，合理设置Reduce端Buffer(保留一定比例的内存直接给Reduce使用)；
-
-IO：数据压缩（Snappy，LZO），使用SequenceFile二进制文件；
-
-数据倾斜：抽样范围分区，自定义分区，Combine，采用MapJoin(避免Reducejoin)。
-
-调优参数：设置Map和Reduce可用的内存上限，CPU核数，Container占用的CPU、内存资源
-
-HDFS小文件优化方法
-
-HDFS小文件弊端：HDFS上每个文件都要在NameNode上建立一个索引，这个索引的大小约为150byte，这样当小文件比较多的时候，就会产生很多的索引文件，一方面会大量占用NameNode的内存空间，另一方面就是索引文件过大使得索引速度变慢。
-
-HDFS小文件解决方案
-
-（1）在数据采集的时候，就将小文件或小批数据合成大文件再上传HDFS。（归档）
-
-（2）在业务处理之前，在HDFS上使用MR对小文件进行合并。（SequenceFile）
-
-（3）在MapReduce处理时，可采用CombineTextInputFormat提高效率。
-
-（4）开启JVM重用
 
 ## 三、Yarn
 

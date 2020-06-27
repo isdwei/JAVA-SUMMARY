@@ -875,6 +875,41 @@ public static boolean interrupted();//测试此线程是否已被中断，并清
 
 **join()**：一种同步机制，A线程调用B线程.join()，A线程会等待B线程执行完再执行。join在start之前调用没有意义。
 
+**join的实现原理：** join方法的本质调用的是Object中的wait方法实现线程的阻塞。
+
+Thread.join其实底层是通过wait/notifyall来实现线程的通信达到线程阻塞的目的；当线程执行结束以后，会触发两个事情，第一个是设置native线程对象为null、第二个是通过notifyall方法，让等待在previousThread对象锁上的wait方法被唤醒。
+
+```java
+public class Thread implements Runnable {
+    ...
+    public final void join() throws InterruptedException {
+        join(0);
+    }
+    ...
+    public final synchronized void join(long millis) throws InterruptedException {
+        long base = System.currentTimeMillis();
+        long now = 0;
+        if (millis < 0) {
+            throw new IllegalArgumentException("timeout value is negative");
+        }
+        if (millis == 0) { //判断是否携带阻塞的超时时间，等于0表示没有设置超时时间
+            while (isAlive()) {//isAlive获取线程状态，无线等待直到previousThread线程结束
+                wait(0); //调用Object中的wait方法实现线程的阻塞
+            }
+        } else { //阻塞直到超时
+            while (isAlive()) { 
+                long delay = millis - now;
+                if (delay <= 0) {
+                    break;
+                }
+                wait(delay);
+                now = System.currentTimeMillis() - base;
+            }
+        }
+    }
+    ...
+```
+
 ### 11. 生产者/消费者模式
 
 #### 11.1 Object中的 wait()/notify()

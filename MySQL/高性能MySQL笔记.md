@@ -685,6 +685,22 @@ order by in.class, in.score desc;
 来源：牛客网
 
 6.行列转换
+
+```mysql
+SELECT id '学号', `name` '姓名', 
+SUM(CASE
+WHEN `courseId` = 1 THEN score ELSE 0
+END) '数学',
+SUM(CASE
+WHEN `courseId` = 2 THEN score ELSE 0
+END) '语文',
+SUM(CASE
+WHEN `courseId` = 3 THEN score ELSE 0
+END) '音乐'
+FROM `scores`
+GROUP BY `id`
+```
+
 SELECT uid,vid FROM (SELECT uid,v_list FROM tablename )t lateral VIEW explode(t.v_list)k AS vid 
 8.用sql求两两组合，输出样例：ab,ac,bc 
  SELECT CONCAT(s1.name,s2.name) FROM tableName s1 JOIN tb s2 ON s1.id<s2.id 
