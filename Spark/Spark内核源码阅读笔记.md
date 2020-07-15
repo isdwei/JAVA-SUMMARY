@@ -82,14 +82,18 @@ RDD 在 Lineage 依赖方面分为两种 Narrow Dependencies 与 Wide Dependenci
 
 **RDD的弹性**体现在：
 
-1. 自动进行内存和磁盘切换
-2. 基于lineage的高效容错
-3. task如果失败会特定次数的重试
-4. stage如果失败会自动进行特定次数的重试，而且只会只计算失败的分片
-5. checkpoint【每次对RDD操作都会产生新的RDD，如果链条比较长，计算比较笨重，就把数据放在硬盘中】和persist 【内存或磁盘中对数据进行复用】(检查点、持久化)
-6. 数据调度弹性：DAG TASK 和资源管理无关
-7. 数据分片的高度弹性repartion
-   
+1. **存储的弹性**：内存与磁盘的自动切换；
+2. **容错的弹性**：数据丢失可以自动恢复；
+3. **计算的弹性**：计算出错重试机制；
+4. **分片的弹性**：可根据需要重新分片。
+
+#### RDD中的核心属性
+
+* 分区列表
+* 分区计算函数
+* RDD之间的依赖关系
+* 分区器
+* 首选计算位置
 
 #### Job
 
@@ -109,36 +113,47 @@ Spark内核泛指Spark的核心运行机制，包括Spark核心组件的运行�
 
 #### 创建
 
-##### 从集合创建
+##### 从内存创建
 
 ```scala
 sc.parallelize
 sc.makeRDD(1 to 10, 3)
 ```
 
-##### 从文件中创建
+##### 从磁盘中创建（以Hadoop的方式读取文件）
 
 ```scala
 sc.textFile(path : String, minSplits : Int = defaultMinSplits)
+//这里是最小分区数，实际产生的数量可能会大于指定的分区数
+//如果总大小11字节，minsplits为2,11/2 = 5余1,1大于5的10%，所以会单独成立一个分区，得到三个分区。
+//数据的读取是按行读取，但是会考虑偏移量。如果只有一行，分两个分区，则有一个分区不会有数据
+//但当遇到多文件时，Hadoop会对整体划分分区，但RDD不会跨文件读数据，也就是一个分区不会同时有两个不同文件的数据
 sc.hadoopFile[K, V, F <: InputFormat[K, V]](path : String, minSplits : Int)
 ...
 ```
+
+##### 从其他RDD中创建
+
+##### 直接创建（new）
+
+> 如果没有指定分区，则找到配置文件中指定的值，如果配置文件中没有指定，则使用当前环境的总核数，取决于setMaster()中配置的环境。
 
 #### 转换算子
 
 ```scala
 map()            // x => x
 distinct()		 // 去重
-flatMap()		 // x => ...
+flatMap()		 // x => ...，返回一个可迭代的集合
 
 // 重新分区
 repartition(numPartitions:Int)	 //底层调用coalesce()	
-coalesce(numPartitions:Int, shuffle:Boolean=false) 
+coalesce(numPartitions:Int, shuffle:Boolean=false) //减小分区
 //分区数增多，必须shuffle
 //分区数较小，可以不shuffle以提高效率
 
 randomSplit(weight:Array[Double], seed:Long)  //将一个RDD切分成多个
-glom()           //将RDD中每个分区中T类型的元素转化为Array[T]
+
+glom()           //将RDD中每个分区中相同类型的元素转化为数组
 
 union(other:RDD[T])         //合并两个RDD，不去重
 intersection(other:RDD[T])  //交集，去重
@@ -147,8 +162,9 @@ subtract(other:RDD[T]) 		//差集
 
 //map
 mapPartitions(Function,Boolean)
-mapPartitionsWithIndex(Function,Boolean)
+mapPartitionsWithIndex(Function,Boolean)//处理数据时，可获取分区索引
 //mapPartitions与map类似，但映射函数的输入由RDD中每个元素变为RDD中每个分区的迭代器。
+//mapPartitions一次处理一个分区的数据，效率比map高，但一个分区中数据没处理完，内存不会释放，所以可能会有OOM的风险
 //在映射过程中如果需要频繁创建对象，map就比较低效，RDD中各个分区可以共享同一个对象以便提高性能，如：将RDD中所有数据通过JDBC连接写入数据库，如果使用map函数会为每个分区创建一个connection，开销很大，如果使用mapPartitions，可以针对每个分区创建一个connection。
 //后面的perservesPartitions指明是否保留父RDD信息。
 
@@ -166,17 +182,19 @@ flatMapValues(Function)
 
 //RDD[K,V] => RDD[K,C]
 combineByKey(createCombiner,mergerCombiner,partitioner,mapSideCombiner,serializer)
-flodByKey(zeroValue,partitioner)
-reduceByKey(partitioner,function)
-groupByKey(partitioner)
+//最通用的对key-value型rdd进行聚集操作的聚集函数（aggregation function）
+aggregateByKey(zeroValue,Combiner,reducer)	//将数据根据不同的规则进行分区内计算和分区间计算
+flodByKey(zeroValue,partitioner)	//分区内和分区间计算规则相同时就简化为flodByKey
+reduceByKey(partitioner,function)   //map端有combiner
+groupByKey(partitioner)				//map端无combiner
 //以上四种都会最终转化为combineByKey
 //第一步：根据条件看是否进行mapSideCombiner
 //第二步：根据partitioner Shuffle到不同分区
 //第三步：再进行一个combiner操作
 
 //join
-cogroup(otherRDD, numPartitions)
-join(otherRDD)			
+cogroup(otherRDD, numPartitions) //在类型为(K,V)和(K,W)的RDD上调用，返回一个(K,(Iterable<V>,Iterable<W>))类型的RDD
+join(otherRDD)	//在类型为(K,V)和(K,W)的RDD上调用，返回一个相同key对应的所有元素连接在一起的(K,(V,W))的RDD		
 leftOuterJoin(otherRDD)
 rightOuterJoin(otherRDD)
 //底层都是调用cogroup实现
@@ -191,12 +209,26 @@ subtractByKey(otherRDD) //与subtract类似，只针对K值取差集
 
 ```scala
 //持久化
+//RDD通过Cache或者Persist方法将前面的计算结果缓存，默认情况下会把数据以序列化的形式缓存在JVM的堆内存中。但是并不是这两个方法被调用时立即缓存，而是触发后面的action算子时，该RDD将会被缓存在计算节点的内存中，并供后面重用。
 cache()
 persist(storageLevel)//默认保存在内存中，保留血缘关系
+//所谓的检查点其实就是通过将RDD中间结果写入磁盘,由于血缘依赖过长会造成容错成本过高，这样就不如在中间阶段做检查点容错，如果检查点之后有节点出现问题，可以从检查点开始重做血缘，减少了开销。
+//对RDD进行checkpoint操作并不会马上被执行，必须执行Action操作才能触发。
+
 checkpoint//持久化在HDFS，会切断RDD的血缘关系
 	//Spark长时间驻留运行，定期checkpoint会节省系统资源
 	//维护过长的血缘关系会使RDD容错重算的成本非常高
 ```
+
+缓存有可能丢失，或者存储于内存的数据由于内存不足而被删除，RDD的缓存容错机制保证了即使缓存丢失也能保证计算的正确执行。通过基于RDD的一系列转换，丢失的数据会被重算，由于RDD的各个Partition是相对独立的，因此只需要计算丢失的部分即可，并不需要重算全部Partition。
+
+Spark会自动对一些操作的中间数据做持久化操作比如：reduceByKey 。这样做的目的是为了当一个节点失败了避免重新计算整个输入。但是，在实际使用的时候，如果想重用数据，仍然建议调用或。
+
+1）Cache缓存只是将数据保存起来，不切断血缘依赖。Checkpoint检查点切断血缘依赖。
+
+2）Cache缓存的数据通常存储在磁盘、内存等地方，可靠性低。Checkpoint的数据通常存储在HDFS等容错、高可用的文件系统，可靠性高。
+
+3）建议对checkpoint()的RDD使用Cache缓存，这样checkpoint的job只需从Cache缓存中读取数据即可，否则需要再从头计算一次RDD。
 
 #### 行动算子
 
@@ -951,6 +983,6 @@ DataFrame除了提供了比RDD更丰富的算子以外，更重要的特点是�
 
 为了说明查询优化，我们来看上图展示的人口数据分析的示例。图中构造了两个DataFrame，将它们join之后又做了一次filter操作。如果原封不动地执行这个执行计划，最终的执行效率是不高的。因为join是一个代价较大的操作，也可能会产生一个较大的数据集。如果我们能将filter下推到 join下方，先对DataFrame进行过滤，再join过滤后的较小的结果集，便可以有效缩短执行时间。而Spark SQL的查询优化器正是这样做的。简而言之，逻辑查询计划优化就是一个利用基于关系代数的等价变换，将高成本的操作替换为低成本操作的过程。
 
-得到的优化执行计划在转换成物 理执行计划的过程中，还可以根据具体的数据源的特性将过滤条件下推至数据源内。最右侧的物理执行计划中Filter之所以消失不见，就是因为溶入了用于执行最终的读取操作的表扫描节点内。
+得到的优化执行计划在转换成物理执行计划的过程中，还可以根据具体的数据源的特性将过滤条件下推至数据源内。最右侧的物理执行计划中Filter之所以消失不见，就是因为溶入了用于执行最终的读取操作的表扫描节点内。
 
 对于普通开发者而言，查询优化 器的意义在于，即便是经验并不丰富的程序员写出的次优的查询，也可以被尽量转换为高效的形式予以执行。
