@@ -422,6 +422,10 @@ ReentrantLock的基本实现可以概括为：**先通过CAS尝试获取锁。�
 
 > 参考[并发编程——详解 AQS CLH 锁]( https://www.jianshu.com/p/4682a6b0802d )
 
+**AQS核心思想是，如果被请求的共享资源空闲，则将当前请求资源的线程设置为有效的工作线程，并且将共享资源设置为锁定状态。如果被请求的共享资源被占用，那么就需要一套线程阻塞等待以及被唤醒时锁分配的机制，这个机制AQS是用CLH队列锁实现的，即将暂时获取不到锁的线程加入到队列中。**
+
+> CLH(Craig,Landin,and Hagersten)队列是一个虚拟的双向队列（虚拟的双向队列即不存在队列实例，仅存在结点之间的关联关系）。AQS是将每条请求共享资源的线程封装成一个CLH锁队列的一个结点（Node）来实现锁的分配。
+
 ##### **8.5.1 非公平锁NonfairSync lock()的过程**：
 
 ```java
@@ -1267,7 +1271,7 @@ public class PrintInOrder{
 
 * 两者性能相近，但是 synchrnizedMap 可以用 null 作为 key 和 value
 
-#### 12.4 JDK1.7中的ConcurrentHashMap
+#### 12.4 JDK1.7中的ConcurrentHashMap（CAS的Lock分段锁）
 
 由Segment数组结构和HashEntry数组结构组成。Segment继承ReentrantLock。
 
@@ -1335,7 +1339,14 @@ public ConcurrentHashMap(int initialCapacity,float loadFactor,int concurrencyLev
 }
 ```
 
-**要点：确认ConcurrentHashMap的并发度，也就是Segment数组长度，并保证它是2的n次幂；确认HashEntry数组的初始化长度，并保证它是2的n次幂。**
+总结一下在 Java 7 中 ConcurrnetHashMap 的初始化逻辑。
+
+1. 必要参数校验。
+2. 校验并发级别 concurrencyLevel 大小，如果大于最大值，重置为最大值。无惨构造**默认值是 16.**
+3. 寻找并发级别 concurrencyLevel 之上最近的 **2 的幂次方**值，作为初始化容量大小，**默认是 16**。
+4. 记录 segmentShift 偏移量，这个值为【容量 = 2 的N次方】中的 N，在后面 Put 时计算位置时会用到。**默认是 32 - sshift = 28**.
+5. 记录 segmentMask，默认是 ssize - 1 = 16 -1 = 15.
+6. **初始化 segments[0]**，**默认大小为 2**，**负载因子 0.75**，**扩容阀值是 2\*0.75=1.5**，插入第二个值时才会进行扩容。
 
 **（2）定位Segment**
 
@@ -1360,16 +1371,45 @@ public V get(Object key) {
 
 **(4)put操作**
 
-**put方法首先需要循环获取锁，获得锁后定位到Segment，然后在Segment里进行插入操作。插入操作需要经历两个步骤，第一步判断是否需要对Segment里的HashEntry数组进行扩容，第二步定位添加元素的位置，然后将其放在HashEntry数组里。**
+* 计算要 put 的 key 的位置，获取指定位置的 Segment。
+* 如果指定位置的 Segment 为空，则初始化这个 Segment.
 
-* **是否需要扩容：**在插入元素前会先判断Segment里的HashEntry数组是否超过容量（threshold），如果超过阈值，则对数组进行扩容。值得一提的是，Segment的扩容判断比HashMap更恰当，因为HashMap是在插入元素后判断元素是否已经到达容量的，如果到达了就进行扩容，但是很有可能扩容之后没有新元素插入，这时HashMap就进行了一次无效的扩容。
-* **如何扩容：**在扩容的时候，首先会创建一个容量是原来容量两倍的数组，然后将原数组里的元素进行再散列后插入到新的数组里。为了高效，ConcurrentHashMap不会对整个容器进行扩容，而只对某个segment进行扩容。
+**初始化 Segment 流程：**
+
+* 检查计算得到的位置的 Segment 是否为null.
+* 为 null 继续初始化，使用 Segment[0] 的容量和负载因子创建一个 HashEntry 数组。
+* 再次检查计算得到的指定位置的 Segment 是否为null.
+* 使用创建的 HashEntry 数组初始化这个 Segment.
+* 自旋判断计算得到的指定位置的 Segment 是否为null，使用 CAS 在这个位置赋值为 Segment.
+* Segment.put 插入 key,value 值。
+
+由于 Segment 继承了 ReentrantLock，所以 Segment 内部可以很方便的获取锁，put 流程就用到了这个功能。
+
+* tryLock() 获取锁，获取不到使用 **`scanAndLockForPut`** 方法继续获取。
+
+* 计算 put 的数据要放入的 index 位置，然后获取这个位置上的 HashEntry 。
+
+* 遍历 put 新元素，为什么要遍历？因为这里获取的 HashEntry 可能是一个空元素，也可能是链表已存在，所以要区别对待。
+
+* 如果这个位置上的 **HashEntry 不存在**：
+  * 如果当前容量大于扩容阀值，小于最大容量，**进行扩容**。
+  * 直接头插法插入。
+
+* 如果这个位置上的 **HashEntry 存在**：
+  * 判断链表当前元素 Key 和 hash 值是否和要 put 的 key 和 hash 值一致。一致则替换值
+  * 不一致，获取链表下一个节点，直到发现相同进行值替换，或者链表表里完毕没有相同的。
+    * 如果当前容量大于扩容阀值，小于最大容量，**进行扩容**。值得一提的是，Segment的扩容判断比HashMap更恰当，因为HashMap是在插入元素后判断元素是否已经到达容量的，如果到达了就进行扩容，但是很有可能扩容之后没有新元素插入，这时HashMap就进行了一次无效的扩容。为了高效，ConcurrentHashMap不会对整个容器进行扩容，而只对某个segment进行扩容。
+    * 直接链表头插法插入。
+
+* 如果要插入的位置之前已经存在，替换后返回旧值，否则返回 null.
+
+这里面的第一步中的 scanAndLockForPut 操作这里没有介绍，这个方法做的操作就是不断的自旋 `tryLock()` 获取锁。当自旋次数大于指定次数时，使用 `lock()` 阻塞获取锁。在自旋时顺表获取下 hash 位置的 HashEntry。
 
 **(5)size操作**
 
 **先尝试2次通过不锁住Segment的方式来统计各个Segment大小，如果统计的过程中，容器的count发生了变化，则再采用加锁的方式来统计所有Segment的大小。（modCount）**
 
-#### 12.5 JDK1.8中的ConcurrentHashMap
+#### 12.5 JDK1.8中的ConcurrentHashMap(Synchronized与CAS)
 
 **重要常量**
 
@@ -1410,15 +1450,11 @@ public ConcurrentHashMap(int initialCapacity) {
 **(2)put()**
 
 * 如果没有初始化就先调用initTable（）方法来进行初始化过程
-
+*  ConcurrentHashMap 的初始化是通过**自旋和 CAS** 操作完成的。里面需要注意的是变量 `sizeCtl` ，它的值决定着当前的初始化状态。 
 * 如果没有hash冲突就直接CAS插入
-
 * 如果还在进行扩容操作就先进行扩容
-
 * 如果存在hash冲突，就加锁(synchronized)来保证线程安全，遍历到尾端插入，或按照红黑树结构插入，
-
 * 若该链表的数量大于阈值8，就要先转换成黑红树的结构，break再一次进入循环
-
 * 如果添加成功就调用addCount（）方法统计size，并且检查是否需要扩容
 
 ```java
@@ -1815,6 +1851,49 @@ public ThreadPoolExecutor(int corePoolSize, //核心池大小大小
 * 如果创建新线程将使当前运行的线程超出maximumPoolSize，任务将被拒绝，并调用对应的策略
 
 工作线程：线程池创建线程时，会将线程封装成工作线程Worker，Worker在执行完任务后，还会循环获取工作队列里 的任务来执行。
+
+```java
+   // 存放线程池的运行状态 (runState) 和线程池内有效线程的数量 (workerCount)
+   private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
+
+    private static int workerCountOf(int c) {
+        return c & CAPACITY;
+    }
+
+    private final BlockingQueue<Runnable> workQueue;
+
+    public void execute(Runnable command) {
+        // 如果任务为null，则抛出异常。
+        if (command == null)
+            throw new NullPointerException();
+        // ctl 中保存的线程池当前的一些状态信息
+        int c = ctl.get();
+
+        //  下面会涉及到 3 步 操作
+        // 1.首先判断当前线程池中之行的任务数量是否小于 corePoolSize
+        // 如果小于的话，通过addWorker(command, true)新建一个线程，并将任务(command)添加到该线程中；然后，启动该线程从而执行任务。
+        if (workerCountOf(c) < corePoolSize) {
+            if (addWorker(command, true))
+                return;
+            c = ctl.get();
+        }
+        // 2.如果当前之行的任务数量大于等于 corePoolSize 的时候就会走到这里
+        // 通过 isRunning 方法判断线程池状态，线程池处于 RUNNING 状态才会被并且队列可以加入任务，该任务才会被加入进去
+        if (isRunning(c) && workQueue.offer(command)) {
+            int recheck = ctl.get();
+            // 再次获取线程池状态，如果线程池状态不是 RUNNING 状态就需要从任务队列中移除任务，并尝试判断线程是否全部执行完毕。同时执行拒绝策略。
+            if (!isRunning(recheck) && remove(command))
+                reject(command);
+                // 如果当前线程池为空就新创建一个线程并执行。
+            else if (workerCountOf(recheck) == 0)
+                addWorker(null, false);
+        }
+        //3. 通过addWorker(command, false)新建一个线程，并将任务(command)添加到该线程中；然后，启动该线程从而执行任务。
+        //如果addWorker(command, false)执行失败，则通过reject()执行相应的拒绝策略的内容。
+        else if (!addWorker(command, false))
+            reject(command);
+    }
+```
 
 #### 15.6 使用线程池的风险
 
