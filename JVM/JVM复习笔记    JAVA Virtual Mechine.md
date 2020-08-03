@@ -420,7 +420,6 @@ Stop The World（停顿类型STW）
 #### 问题2：内存泄漏
 
 *  `jstat -gc pid` 查看内存使用和GC情况
-* 
 
 #### 问题3：死锁
 
