@@ -233,7 +233,7 @@ typedef struct list{
 * 带长度计数器
 * 多态，使用void指针保存节点值，可用于保存不同类型的值
 
-### 字典（dist）
+### 字典（dict）
 
 又称map、table，用于保存键值对。Redis底层就是用字典实现的。
 
